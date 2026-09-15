@@ -109,6 +109,8 @@ class CoffeeContract(unittest.TestCase):
  def test_invalid_coffee_and_measurement(self):
   self.assertEqual(self.http.post('/shots',json={'coffee_id':'missing'}).status_code,404)
   self.assertEqual(self.http.post('/shots',json={'coffee_id':'coffee-1','dose':-1}).status_code,422)
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':'coffee-1','dose':123}).status_code,200)
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':'coffee-1','dose':1001}).status_code,422)
  def test_profile_and_pour_over_fields_are_revisioned(self):
   default=self.http.get('/profile').json()
   self.assertEqual(default['brew_method'],'espresso')

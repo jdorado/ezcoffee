@@ -101,7 +101,7 @@ class Shot(BaseModel):
     taste_balance:Literal['','sour','slightly_sour','balanced','slightly_bitter','bitter']=''
     choked:bool=False
     rating:int|None=Field(default=None,ge=1,le=5,strict=True)
-    dose:float|None=Field(default=None,gt=0,le=100)
+    dose:float|None=Field(default=None,gt=0,le=1000)
     grind:str=Field(default='',max_length=80)
     paper:Literal['yes','no','unknown']='unknown'
     temp:Literal['','0','I','II']=''

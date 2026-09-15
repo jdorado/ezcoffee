@@ -4,6 +4,21 @@ declare const process: {env: {API_BASE_URL?: string}}
 const base=process.env.API_BASE_URL||'http://127.0.0.1:8001'
 let accessToken:()=>Promise<string|null>=async()=>null
 export function setAccessTokenProvider(provider:()=>Promise<string|null>){accessToken=provider}
+
+type ApiIssue={type?:string;loc?:Array<string|number>;msg?:string;ctx?:Record<string,unknown>}
+const fieldNames:Record<string,string>={dose:'Coffee dose',water_g:'Water quantity',ice_g:'Ice quantity',water_temp_c:'Water temperature',yield_g:'Output',stop_yield_g:'Stop yield',target_yield_g:'Target output',target_yield_max_g:'Target upper bound',seconds:'Brew time',bloom_seconds:'Bloom time',rating:'Rating'}
+const units:Record<string,string>={dose:' g',water_g:' g',ice_g:' g',water_temp_c:' °C',yield_g:' g',stop_yield_g:' g',target_yield_g:' g',target_yield_max_g:' g',seconds:' s',bloom_seconds:' s'}
+export function apiErrorMessage(detail:unknown){
+ if(typeof detail==='string')return detail
+ if(!Array.isArray(detail))return 'Something went wrong. Please try again.'
+ return detail.map((issue:ApiIssue)=>{
+  const key=String(issue.loc?.at(-1)||'entry'),label=fieldNames[key]||key.replaceAll('_',' '),unit=units[key]||''
+  if(issue.type==='less_than_equal')return `${label} must be ${issue.ctx?.le}${unit} or less.`
+  if(issue.type==='greater_than')return `${label} must be greater than ${issue.ctx?.gt}${unit}.`
+  if(issue.type==='greater_than_equal')return `${label} must be ${issue.ctx?.ge}${unit} or more.`
+  return `${label}: ${issue.msg||'invalid value'}.`
+ }).join(' ')
+}
 export async function api(path:string,method='GET',body?:unknown){
  const token=await accessToken()
  const headers:Record<string,string>={}
@@ -11,7 +26,7 @@ export async function api(path:string,method='GET',body?:unknown){
  if(token)headers.Authorization='Bearer '+token
  const response=await fetch(base+path,{method,headers,body:body?JSON.stringify(body):undefined})
  const value=await response.json()
- if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:JSON.stringify(value.detail||value))
+ if(!response.ok)throw new Error(apiErrorMessage(value.detail||value))
  return value
 }
 export type Coffee={id:string;name:string;brand?:string;roast_date:string;notes:string;tag_color?:string;archived?:boolean;revision:number}
