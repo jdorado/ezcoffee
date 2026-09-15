@@ -16,8 +16,8 @@ The AI image must already contain a working Codex CLI installation.
    port, and volume names.
 3. Keep the referenced API environment and credential seed outside this repo.
 
-The API environment must provide Mongo and Privy credentials plus an exact
-`COFFEE_OWNER_SUB`. The browser build separately needs `APP_MODE=personal`,
+The API environment must provide `MONGO_URL` and Privy credentials plus
+an exact `COFFEE_OWNER_SUB`. The browser build separately needs `APP_MODE=personal`,
 `CHAT_ENABLED=true`, `PRIVY_APP_ID`, `API_BASE_URL`, and any desired equipment
 defaults.
 

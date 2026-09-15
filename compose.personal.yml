@@ -10,7 +10,7 @@ services:
       AI_URL: http://ai:8102
       COFFEE_AI_ENABLED: "true"
       COFFEE_REQUIRE_AUTH: "true"
-      MONGO_DB: ${MONGO_DB:-coffee_logbook}
+      MONGO_DB: ${MONGO_DB:-ezcoffee}
     ports:
       - "127.0.0.1:${COFFEE_API_PORT:-18084}:8080"
     volumes:

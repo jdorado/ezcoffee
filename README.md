@@ -28,11 +28,12 @@ You need Docker with Compose v2.
 git clone https://github.com/jdorado/ezcoffee.git
 cd ezcoffee
 cp .env.example .env
-docker compose up -d --build --wait
+docker compose -f compose.yml -f compose.local.yml up -d --build --wait
 ```
 
 Open <http://127.0.0.1:5176>. Data is stored in the `mongo_data` Docker volume.
-To stop the app without deleting data, run `docker compose down`.
+To stop the app without deleting data, run
+`docker compose -f compose.yml -f compose.local.yml down`.
 
 The default bind is loopback-only. If you expose the app to a network, put it
 behind authentication and HTTPS first; the self-host profile intentionally has
@@ -54,6 +55,25 @@ DEFAULT_PAPER=no
 DEFAULT_TEMP=I
 DEFAULT_PUCK_SCREEN=yes
 ```
+
+## Production deployment
+
+There are only two environments: local and production. Production uses the
+same `compose.yml` but receives its Mongo connection from an ignored secret
+file on the production host; no Atlas URI, database user, or password belongs
+in this repository.
+
+```sh
+# On the production host, outside this checkout:
+sudo install -d -m 700 /etc/ezcoffee
+sudo install -m 600 profiles/production.env.example /etc/ezcoffee/production.env
+# Edit /etc/ezcoffee/production.env with the real MONGO_URL.
+docker compose --env-file /etc/ezcoffee/production.env -f compose.yml up -d --build --wait
+```
+
+The public self-host app stays AI-free. The maintainer-only personal profile,
+including the optional AI runtime, remains separately configured through its
+own ignored runtime file; see [docs/PERSONAL_PROFILE.md](docs/PERSONAL_PROFILE.md).
 
 ## Local development
 

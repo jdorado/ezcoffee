@@ -22,7 +22,7 @@ REQUIRE_AUTH = os.getenv('COFFEE_REQUIRE_AUTH', 'false').lower() == 'true'
 AI_ENABLED = os.getenv('COFFEE_AI_ENABLED', 'false').lower() == 'true'
 OWNER_SUB = os.getenv('COFFEE_OWNER_SUB', '')
 client = AsyncIOMotorClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'), serverSelectionTimeoutMS=3000)
-db = client[os.getenv('MONGO_DB','coffee_logbook')]
+db = client[os.getenv('MONGO_DB','ezcoffee')]
 lock = asyncio.Lock()
 tasks = set()
 def now(): return datetime.now(timezone.utc).isoformat()

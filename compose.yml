@@ -1,16 +1,5 @@
 name: ezcoffee
 services:
-  mongo:
-    image: mongo:8.0
-    restart: unless-stopped
-    volumes:
-      - mongo_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   api:
     build:
       context: .
@@ -19,11 +8,10 @@ services:
       APP_MODE: selfhost
       COFFEE_AI_ENABLED: "false"
       COFFEE_REQUIRE_AUTH: "false"
-      MONGO_URL: mongodb://mongo:27017
-      MONGO_DB: ${MONGO_DB:-coffee_logbook}
-    depends_on:
-      mongo:
-        condition: service_healthy
+      # Production injects MONGO_URL through an ignored --env-file. The local
+      # override supplies the loopback-only Mongo service instead.
+      MONGO_URL: ${MONGO_URL:-mongodb://mongo:27017}
+      MONGO_DB: ${MONGO_DB:-ezcoffee}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=5)"]
@@ -52,6 +40,3 @@ services:
     ports:
       - "127.0.0.1:${COFFEE_WEB_PORT:-5176}:80"
     restart: unless-stopped
-
-volumes:
-  mongo_data:
