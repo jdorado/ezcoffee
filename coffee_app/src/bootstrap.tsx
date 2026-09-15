@@ -3,7 +3,6 @@ import {createRoot} from 'react-dom/client'
 import {PrivyProvider,usePrivy} from '@privy-io/react-auth'
 import App from './main'
 import {setAccessTokenProvider} from './api'
-import Icon from './components/ui/Icon'
 import LoadingLogbook from './components/LoadingLogbook'
 import './style.css'
 import {profile} from './profile'
@@ -13,7 +12,7 @@ function AuthenticatedApp(){
  const [connected,setConnected]=useState(false)
  useEffect(()=>{setAccessTokenProvider(getAccessToken);setConnected(true);return()=>setAccessTokenProvider(async()=>null)},[getAccessToken])
  if(!ready||!connected)return <LoadingLogbook/>
- if(!authenticated)return <div className="sign-in"><span className="brand-icon"><Icon name="cup"/></span><h1>ezcoffee</h1><p>Your coffees. Your brews. Your daily ritual.</p><button className="primary" onClick={login}>Sign in</button></div>
+ if(!authenticated)return <div className="sign-in"><img className="sign-in-logo" src="/ezcoffee-logo-header.png" alt="ezcoffee"/><p>Your coffees. Your brews. Your daily ritual.</p><button className="primary" onClick={login}>Sign in</button></div>
  return <App onLogout={logout}/>
 }
 const appId=process.env.PRIVY_APP_ID
