@@ -13,12 +13,13 @@ from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, Field, model_validator
 
 ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(ROOT/'.env')
 load_dotenv(ROOT/'coffee_api/.env.local')
 from src.services.privy_auth import verify_privy_access_token, PrivyAuthError, PrivyConfigError
 APP_MODE = os.getenv('APP_MODE', 'selfhost').strip().lower()
 if APP_MODE not in {'selfhost', 'personal'}:
     raise RuntimeError('APP_MODE must be selfhost or personal')
-REQUIRE_AUTH = os.getenv('COFFEE_REQUIRE_AUTH', 'false').lower() == 'true'
+REQUIRE_AUTH = os.getenv('COFFEE_REQUIRE_AUTH', 'true' if APP_MODE == 'personal' else 'false').lower() == 'true'
 AI_ENABLED = os.getenv('COFFEE_AI_ENABLED', 'false').lower() == 'true'
 OWNER_SUB = os.getenv('COFFEE_OWNER_SUB', '')
 client = AsyncIOMotorClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'), serverSelectionTimeoutMS=3000)
@@ -44,8 +45,14 @@ async def lifespan(app):
         raise RuntimeError('The selfhost profile does not support owner authentication')
     if APP_MODE == 'selfhost' and AI_ENABLED:
         raise RuntimeError('The selfhost profile does not include AI')
+    if APP_MODE == 'personal' and not REQUIRE_AUTH:
+        raise RuntimeError('The personal profile requires owner authentication')
     if REQUIRE_AUTH and not OWNER_SUB:
         raise RuntimeError('COFFEE_OWNER_SUB is required in production')
+    if REQUIRE_AUTH and not (os.getenv('PRIVY_APP_ID') or os.getenv('P1')):
+        raise RuntimeError('PRIVY_APP_ID is required when authentication is enabled')
+    if REQUIRE_AUTH and not (os.getenv('PRIVY_APP_SECRET') or os.getenv('P2')):
+        raise RuntimeError('PRIVY_APP_SECRET is required when authentication is enabled')
     await client.admin.command('ping')
     for col in [db.coffees,db.shots,db.jobs,db.messages]: await col.create_index('id',unique=True)
     seed_path=ROOT/'data/seed.json'

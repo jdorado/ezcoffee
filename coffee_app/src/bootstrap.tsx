@@ -5,7 +5,6 @@ import App from './main'
 import {setAccessTokenProvider} from './api'
 import LoadingLogbook from './components/LoadingLogbook'
 import './style.css'
-import {profile} from './profile'
 declare const process:{env:{NODE_ENV?:string;PRIVY_APP_ID?:string;PRIVY_CLIENT_ID?:string}}
 function AuthenticatedApp(){
  const {ready,authenticated,login,logout,getAccessToken}=usePrivy()
@@ -17,8 +16,8 @@ function AuthenticatedApp(){
 }
 const appId=process.env.PRIVY_APP_ID
 const production=process.env.NODE_ENV==='production'
-if(production&&profile.mode==='personal'&&!appId)throw new Error('The personal profile requires PRIVY_APP_ID')
-createRoot(document.getElementById('app')!).render(appId?<PrivyProvider appId={appId} clientId={process.env.PRIVY_CLIENT_ID||undefined} config={{loginMethods:['google','email'],appearance:{theme:'light',accentColor:'#171717'}}}><AuthenticatedApp/></PrivyProvider>:<App/>)
+if(!appId)throw new Error('The personal profile requires PRIVY_APP_ID')
+createRoot(document.getElementById('app')!).render(<PrivyProvider appId={appId} clientId={process.env.PRIVY_CLIENT_ID||undefined} config={{loginMethods:['google','email'],appearance:{theme:'light',accentColor:'#171717'}}}><AuthenticatedApp/></PrivyProvider>)
 
 if(production && 'serviceWorker' in navigator){
  window.addEventListener('load',()=>{

@@ -21,6 +21,10 @@ an exact `COFFEE_OWNER_SUB`. The browser build separately needs `APP_MODE=person
 `CHAT_ENABLED=true`, `PRIVY_APP_ID`, `API_BASE_URL`, and any desired equipment
 defaults.
 
+For local QA, those values may live together in the ignored root `.env` file.
+Both the browser and API must use the same `PRIVY_APP_ID`; the secret is read by
+the API only and is not part of the browser build's environment allowlist.
+
 ## Deployment configuration
 
 Copy `profiles/deploy.env.example` to `profiles/deploy.env` locally. That ignored

@@ -2,7 +2,12 @@ import asyncio, os, sys, unittest, uuid
 from pathlib import Path
 os.environ['APP_MODE']='personal'
 os.environ['COFFEE_AI_ENABLED']='true'
-os.environ['MONGO_DB']='coffee_test_'+uuid.uuid4().hex
+os.environ['COFFEE_REQUIRE_AUTH']='true'
+os.environ['COFFEE_OWNER_SUB']='test-owner'
+os.environ['PRIVY_APP_ID']='test-app'
+os.environ['PRIVY_APP_SECRET']='test-secret'
+os.environ['MONGO_URL']=os.getenv('TEST_MONGO_URL','mongodb://127.0.0.1:27019')
+os.environ['MONGO_DB']='coffee_test_'+uuid.uuid4().hex[:24]
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'coffee_api'))
 from fastapi.testclient import TestClient
 from src.main import app, client
@@ -41,7 +46,13 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(self.http.post('/shots',json={'coffee_id':c['id'],'taste_balance':'too coarse'}).status_code,422)
  @classmethod
  def setUpClass(cls):
+  from unittest.mock import AsyncMock
+  from types import SimpleNamespace
+  import src.main
+  cls.original_verifier=src.main.verify_privy_access_token
+  src.main.verify_privy_access_token=AsyncMock(return_value=SimpleNamespace(user_id='test-owner'))
   cls.context=TestClient(app);cls.http=cls.context.__enter__()
+  cls.http.headers.update({'Authorization':'Bearer test'})
   # Public repositories ship no personal seed data; contract fixtures are isolated here.
   from pymongo import MongoClient
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
@@ -55,6 +66,8 @@ class CoffeeContract(unittest.TestCase):
   with MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019')) as mongo:
    mongo.drop_database(os.environ['MONGO_DB'])
   cls.context.__exit__(None,None,None)
+  import src.main
+  src.main.verify_privy_access_token=cls.original_verifier
  def test_seed_preserves_plans_and_chronological_dates(self):
   state=self.http.get('/state').json()
   self.assertEqual(len([c for c in state['coffees'] if c['id'].startswith('coffee-')]),6)
@@ -154,8 +167,8 @@ class CoffeeContract(unittest.TestCase):
   from unittest.mock import patch, AsyncMock
   from types import SimpleNamespace
   with patch('src.main.REQUIRE_AUTH',True),patch('src.main.OWNER_SUB','owner'):
-   self.assertEqual(self.http.get('/state').status_code,401)
-   self.assertEqual(self.http.post('/chat',json={'id':'unauthorized','message':'test'}).status_code,401)
+   self.assertEqual(self.http.get('/state',headers={'Authorization':''}).status_code,401)
+   self.assertEqual(self.http.post('/chat',headers={'Authorization':''},json={'id':'unauthorized','message':'test'}).status_code,401)
    with patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id='other'))):
     self.assertEqual(self.http.get('/state',headers={'Authorization':'Bearer test'}).status_code,403)
    with patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id='owner'))):
@@ -165,7 +178,7 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(self.http.post('/agent/save',headers={'X-Coffee-Token':'bad'},json={'kind':'coffee','data':{'name':'blocked'}}).status_code,403)
  def test_selfhost_profile_exposes_shots_without_chat(self):
   from unittest.mock import patch
-  with patch('src.main.AI_ENABLED',False):
+  with patch('src.main.AI_ENABLED',False),patch('src.main.REQUIRE_AUTH',False):
    state=self.http.get('/state').json()
    self.assertEqual(state['messages'],[])
    self.assertIsNone(state['active_job'])
@@ -186,6 +199,6 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(self.http.post('/shots',json={'coffee_id':coffee['id']}).status_code,404)
   from unittest.mock import patch
   with patch('src.main.REQUIRE_AUTH',True),patch('src.main.OWNER_SUB','owner'):
-   self.assertEqual(self.http.delete('/shots/'+other['id']+'?revision=1').status_code,401)
+   self.assertEqual(self.http.delete('/shots/'+other['id']+'?revision=1',headers={'Authorization':''}).status_code,401)
 
 if __name__=='__main__':unittest.main()

@@ -37,6 +37,7 @@ const parseEnvFile = (filename) => {
 
 const loadEnv = () => {
   const parsed = {
+    ...parseEnvFile('../.env'),
     ...parseEnvFile('.env'),
     ...parseEnvFile('.env.local'),
     ...process.env,

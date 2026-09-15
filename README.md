@@ -98,6 +98,13 @@ npm test
 
 Tests use an isolated Mongo database and must never point at personal records.
 
+To run the authenticated personal app locally, put `APP_MODE=personal`,
+`COFFEE_REQUIRE_AUTH=true`, `PRIVY_APP_ID`, `PRIVY_APP_SECRET`, and
+`COFFEE_OWNER_SUB` in the ignored root `.env` file. `PRIVY_CLIENT_ID` is
+optional.
+The personal frontend and API fail closed when authentication is not configured;
+there is no anonymous development fallback.
+
 ## Profiles and roadmap
 
 - `selfhost` is the public default and includes only Shots.
