@@ -4,7 +4,7 @@ import Icon from './ui/Icon'
 
 const presetLabels={lelit_mara_x:'Lelit Mara X',generic_espresso:'Generic espresso',standard_pour_over:'Standard pour-over',custom:'Custom setup'} as const
 
-export default function ProfileView({value,onChange,onSave,saving}:{value:BrewProfile;onChange:(next:BrewProfile)=>void;onSave:()=>void;saving:boolean}){
+export default function ProfileView({value,onChange,onSave,onLogout,saving}:{value:BrewProfile;onChange:(next:BrewProfile)=>void;onSave:()=>void;onLogout?:()=>void;saving:boolean}){
  const rows=[...value.tracked_fields,...allFields.filter(field=>!value.tracked_fields.includes(field))]
  function choose(preset:BrewProfile['equipment_preset']){onChange({...value,equipment_preset:preset,...presets[preset]})}
  function toggle(field:TrackedField){const enabled=value.tracked_fields.includes(field);const tracked_fields=enabled?value.tracked_fields.filter(item=>item!==field):[...value.tracked_fields,field];if(tracked_fields.length)onChange({...value,equipment_preset:'custom',tracked_fields})}
@@ -16,5 +16,6 @@ export default function ProfileView({value,onChange,onSave,saving}:{value:BrewPr
    <label>Setup name<input value={value.equipment_name} placeholder="My coffee setup" onChange={event=>onChange({...value,equipment_name:event.target.value})}/></label>
   </section>
   <section className="profile-section"><div><span className="profile-step">02</span><h2>What do you track?</h2><p>Turn fields on or off. Use the arrows to set the order used in the brew form and cards.</p></div><div className="tracking-list">{rows.map(field=>{const enabled=value.tracked_fields.includes(field),index=value.tracked_fields.indexOf(field);return <div key={field} className={enabled?'enabled':''}><label><input type="checkbox" checked={enabled} onChange={()=>toggle(field)}/><span>{fieldLabels[field]}</span></label><div><button type="button" aria-label={`Move ${fieldLabels[field]} up`} disabled={!enabled||index===0} onClick={()=>move(field,-1)}>↑</button><button type="button" aria-label={`Move ${fieldLabels[field]} down`} disabled={!enabled||index===value.tracked_fields.length-1} onClick={()=>move(field,1)}>↓</button></div></div>})}</div></section>
+  {onLogout&&<section className="profile-section profile-account"><div><span className="profile-step">03</span><h2>Account</h2><p>End this signed-in session on this device.</p></div><div className="account-actions"><button type="button" className="profile-sign-out" onClick={onLogout}><Icon name="logout"/>Sign out</button></div></section>}
  </main>
 }

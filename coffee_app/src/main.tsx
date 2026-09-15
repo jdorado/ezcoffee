@@ -100,10 +100,9 @@ export default function App({onLogout}:{onLogout?:()=>void}){
   <header className="app-top-bar">
    <a className="brand" href="#" aria-label="ezcoffee home" onClick={e=>{e.preventDefault();setTab('shots')}}><img className="brand-logo" src="/ezcoffee-logo-header.png" alt="ezcoffee"/></a>
    <nav aria-label="Primary">{['chat','shots','profile'].map(t=>{const chatDisabled=t==='chat'&&!profile.chatEnabled;return <button key={t} disabled={chatDisabled} title={chatDisabled?'Chat is not enabled in this profile':undefined} aria-pressed={tab===t} className={tab===t?'active':''} onClick={()=>setTab(t)}><Icon name={t==='chat'?'chat':t==='profile'?'bean':'cup'}/>{t==='chat'?'Chat':t==='profile'?'Profile':isFilter?'Brews':'Shots'}</button>})}</nav>
-   {onLogout&&<div className="header-actions"><button className="sign-out-header" onClick={onLogout} aria-label="Sign out" title="Sign out"><Icon name="logout"/></button></div>}
   </header>
   {error&&<div role="alert" className="error">{error}<button onClick={()=>setError('')} aria-label="Dismiss error">×</button></div>}
-  {loading?<main className="loading-view"><LoadingLogbook/></main>:tab==='profile'?<ProfileView value={brewProfile} onChange={setBrewProfile} onSave={saveProfile} saving={saving}/>:tab==='shots'?<main className="shots-view">
+  {loading?<main className="loading-view"><LoadingLogbook/></main>:tab==='profile'?<ProfileView value={brewProfile} onChange={setBrewProfile} onSave={saveProfile} onLogout={onLogout} saving={saving}/>:tab==='shots'?<main className="shots-view">
    <div className="heading">
     <div><div className="eyebrow">{isFilter?'FILTER COFFEE LOGBOOK':'ESPRESSO LOGBOOK'}</div><h1>{isFilter?'Brews':'Shots'}</h1></div>
     <div className="shot-heading-actions">{tracked('paper')&&<div className="paper-filter" role="group" aria-label={`Filter ${brewWord}s`}>{[['all','All'],['yes','Paper'],['no','No paper'],['locked','Locked']].map(([value,label])=><button key={value} type="button" aria-pressed={paperFilter===value} onClick={()=>{setPaperFilter(value);if(value==='locked')setFilter('logged')}}>{label}</button>)}</div>}<button className="primary" disabled={!coffee||coffee.archived} onClick={newShot}><Icon name="plus"/>Log {brewWord}</button></div>
