@@ -17,17 +17,18 @@ load_dotenv(ROOT/'.env')
 load_dotenv(ROOT/'coffee_api/.env.local')
 from src.services.privy_auth import verify_privy_access_token, PrivyAuthError, PrivyConfigError
 APP_MODE = os.getenv('APP_MODE', 'selfhost').strip().lower()
-if APP_MODE not in {'selfhost', 'personal'}:
-    raise RuntimeError('APP_MODE must be selfhost or personal')
-REQUIRE_AUTH = os.getenv('COFFEE_REQUIRE_AUTH', 'true' if APP_MODE == 'personal' else 'false').lower() == 'true'
+if APP_MODE not in {'selfhost', 'hosted', 'personal'}:
+    raise RuntimeError('APP_MODE must be selfhost, hosted, or personal')
+REQUIRE_AUTH = os.getenv('COFFEE_REQUIRE_AUTH', 'true' if APP_MODE in {'hosted','personal'} else 'false').lower() == 'true'
 AI_ENABLED = os.getenv('COFFEE_AI_ENABLED', 'false').lower() == 'true'
 OWNER_SUB = os.getenv('COFFEE_OWNER_SUB', '')
+SELFHOST_ACCOUNT = 'selfhost'
 client = AsyncIOMotorClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'), serverSelectionTimeoutMS=3000)
 db = client[os.getenv('MONGO_DB','ezcoffee')]
 lock = asyncio.Lock()
 tasks = set()
 def now(): return datetime.now(timezone.utc).isoformat()
-def clean(row): return {k:v for k,v in row.items() if k not in ('_id','token')}
+def clean(row): return {k:v for k,v in row.items() if k not in ('_id','token','account_id')}
 def shot_sort_key(row):
     value=row.get('date','')
     if value:
@@ -45,22 +46,25 @@ async def lifespan(app):
         raise RuntimeError('The selfhost profile does not support owner authentication')
     if APP_MODE == 'selfhost' and AI_ENABLED:
         raise RuntimeError('The selfhost profile does not include AI')
-    if APP_MODE == 'personal' and not REQUIRE_AUTH:
-        raise RuntimeError('The personal profile requires owner authentication')
-    if REQUIRE_AUTH and not OWNER_SUB:
-        raise RuntimeError('COFFEE_OWNER_SUB is required in production')
+    if APP_MODE == 'hosted' and AI_ENABLED:
+        raise RuntimeError('The hosted profile does not include the private AI runtime')
+    if APP_MODE in {'hosted','personal'} and not REQUIRE_AUTH:
+        raise RuntimeError('Hosted and personal profiles require authentication')
+    if APP_MODE == 'personal' and not OWNER_SUB:
+        raise RuntimeError('COFFEE_OWNER_SUB is required for the personal profile')
     if REQUIRE_AUTH and not (os.getenv('PRIVY_APP_ID') or os.getenv('P1')):
         raise RuntimeError('PRIVY_APP_ID is required when authentication is enabled')
     if REQUIRE_AUTH and not (os.getenv('PRIVY_APP_SECRET') or os.getenv('P2')):
         raise RuntimeError('PRIVY_APP_SECRET is required when authentication is enabled')
     await client.admin.command('ping')
-    for col in [db.coffees,db.shots,db.jobs,db.messages]: await col.create_index('id',unique=True)
+    for col in [db.coffees,db.shots,db.jobs,db.messages]: await col.create_index([('account_id',1),('id',1)],unique=True)
     seed_path=ROOT/'data/seed.json'
-    if seed_path.exists():
+    if APP_MODE == 'selfhost' and seed_path.exists():
         seed=json.loads(seed_path.read_text())
         for collection in ['coffees','shots','messages']:
             for row in seed.get(collection,[]):
-                await db[collection].update_one({'id':row['id']},{'$setOnInsert':row},upsert=True)
+                payload={'account_id':SELFHOST_ACCOUNT,**row}
+                await db[collection].update_one({'account_id':SELFHOST_ACCOUNT,'id':row['id']},{'$setOnInsert':payload},upsert=True)
     await db.jobs.update_many({'status':{'$in':['queued','running']}},{'$set':{'status':'failed','error':'API restarted. Check saved shots before retrying.'}})
     yield
     for task in tasks: task.cancel()
@@ -70,7 +74,8 @@ async def lifespan(app):
 app=FastAPI(title='ezcoffee',lifespan=lifespan)
 @app.middleware('http')
 async def require_owner(request:Request, call_next):
-    if REQUIRE_AUTH and request.method != 'OPTIONS' and request.url.path not in ['/health','/agent/context','/agent/save']:
+    public=request.method == 'OPTIONS' or request.url.path in ['/health','/agent/context','/agent/save']
+    if REQUIRE_AUTH and not public:
         header=request.headers.get('Authorization','')
         if not header.startswith('Bearer '):
             return JSONResponse({'detail':'Sign in to open your coffee logbook.'},status_code=401)
@@ -78,8 +83,11 @@ async def require_owner(request:Request, call_next):
             actor=await verify_privy_access_token(header[7:])
         except (PrivyAuthError, PrivyConfigError, httpx.HTTPError):
             return JSONResponse({'detail':'Your sign-in expired. Please sign in again.'},status_code=401)
-        if actor.user_id != OWNER_SUB:
+        if APP_MODE == 'personal' and actor.user_id != OWNER_SUB:
             return JSONResponse({'detail':'This coffee logbook belongs to a different account.'},status_code=403)
+        request.state.account_id=actor.user_id
+    elif not public:
+        request.state.account_id=SELFHOST_ACCOUNT
     return await call_next(request)
 
 app.add_middleware(CORSMiddleware,allow_origins=os.getenv('COFFEE_CORS_ORIGINS','http://127.0.0.1:5176,http://localhost:5176').split(','),allow_methods=['GET','POST','PUT','DELETE'],allow_headers=['Content-Type','Authorization'])
@@ -152,79 +160,82 @@ class BrewProfile(BaseModel):
 
 def default_profile(): return BrewProfile().model_dump()
 
-async def read_profile():
-    row=await db.profiles.find_one({'_id':'default'})
+async def read_profile(account_id):
+    row=await db.profiles.find_one({'_id':account_id})
     if not row:return default_profile()
     profile=clean(row)
     # Brand belongs to the coffee record. Ignore the legacy profile toggle.
     profile['tracked_fields']=[field for field in profile.get('tracked_fields',[]) if field!='brand']
     return profile
 
-async def save(collection, key, data):
-    payload=data.model_dump(exclude_unset=bool(data.revision)); revision=payload.pop('revision'); payload.update(id=key,revision=revision+1,updated_at=now())
+async def save(collection, key, data, account_id):
+    payload=data.model_dump(exclude_unset=bool(data.revision)); revision=payload.pop('revision'); payload.update(account_id=account_id,id=key,revision=revision+1,updated_at=now())
     if revision:
-        row=await collection.find_one_and_update({'id':key,'revision':revision,'deleted_at':{'$exists':False}},{'$set':payload},return_document=True)
+        row=await collection.find_one_and_update({'account_id':account_id,'id':key,'revision':revision,'deleted_at':{'$exists':False}},{'$set':payload},return_document=True)
         if not row: raise HTTPException(409,'This record changed. Reload it before saving again.')
     else:
-        if await collection.find_one({'id':key}): raise HTTPException(409,'Record already exists.')
+        if await collection.find_one({'account_id':account_id,'id':key}): raise HTTPException(409,'Record already exists.')
         await collection.insert_one(payload)
     return clean(row if revision else payload)
 
 @app.get('/health')
 async def health():
-    await client.admin.command('ping'); return {'status':'ok','database':db.name,'app_mode':APP_MODE}
+    await client.admin.command('ping'); return {'status':'ok','app_mode':APP_MODE}
+
+async def state_for(account_id):
+    coffees=[clean(x) async for x in db.coffees.find({'account_id':account_id,'deleted_at':{'$exists':False}})]
+    shots=[clean(x) async for x in db.shots.find({'account_id':account_id,'deleted_at':{'$exists':False},'coffee_id':{'$in':[c['id'] for c in coffees]}})]
+    shots.sort(key=shot_sort_key)
+    messages=[clean(x) async for x in db.messages.find({'account_id':account_id}).sort('_id',1)] if AI_ENABLED else []
+    active_job=await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}},{'_id':0,'token':0,'account_id':0}) if AI_ENABLED else None
+    return {'coffees':coffees, 'shots':shots, 'profile':await read_profile(account_id), 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
 
 @app.get('/state')
-async def state():
-    coffees=[clean(x) async for x in db.coffees.find({'deleted_at':{'$exists':False}})]
-    shots=[clean(x) async for x in db.shots.find({'deleted_at':{'$exists':False},'coffee_id':{'$in':[c['id'] for c in coffees]}})]
-    shots.sort(key=shot_sort_key)
-    messages=[clean(x) async for x in db.messages.find().sort('_id',1)] if AI_ENABLED else []
-    active_job=await db.jobs.find_one({'status':{'$in':['queued','running']}},{'_id':0,'token':0}) if AI_ENABLED else None
-    return {'coffees':coffees, 'shots':shots, 'profile':await read_profile(), 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
+async def state(request:Request): return await state_for(request.state.account_id)
 
 @app.get('/profile')
-async def get_profile(): return await read_profile()
+async def get_profile(request:Request): return await read_profile(request.state.account_id)
 
 @app.put('/profile')
-async def put_profile(data:BrewProfile):
+async def put_profile(data:BrewProfile,request:Request):
+    account_id=request.state.account_id
     payload=data.model_dump(exclude={'revision'})
     payload.update(revision=data.revision+1,updated_at=now())
     if data.revision:
-        row=await db.profiles.find_one_and_update({'_id':'default','revision':data.revision},{'$set':payload},return_document=True)
+        row=await db.profiles.find_one_and_update({'_id':account_id,'revision':data.revision},{'$set':payload},return_document=True)
         if not row: raise HTTPException(409,'This profile changed. Reload it before saving again.')
         return clean(row)
     try:
-        await db.profiles.insert_one({'_id':'default',**payload})
+        await db.profiles.insert_one({'_id':account_id,**payload})
     except DuplicateKeyError:
         raise HTTPException(409,'This profile changed. Reload it before saving again.')
     return payload
 
 @app.delete('/coffees/{key}')
-async def delete_coffee(key:str,revision:int):
-    return await delete_record(db.coffees,key,revision)
+async def delete_coffee(key:str,revision:int,request:Request):
+    return await delete_record(db.coffees,key,revision,request.state.account_id)
 
 @app.delete('/shots/{key}')
-async def delete_shot(key:str,revision:int):
-    return await delete_record(db.shots,key,revision)
+async def delete_shot(key:str,revision:int,request:Request):
+    return await delete_record(db.shots,key,revision,request.state.account_id)
 
-async def delete_record(collection,key,revision):
-    row=await collection.find_one_and_update({'id':key,'revision':revision,'deleted_at':{'$exists':False}}, {'$set':{'deleted_at':now()},'$inc':{'revision':1}},return_document=True)
+async def delete_record(collection,key,revision,account_id):
+    row=await collection.find_one_and_update({'account_id':account_id,'id':key,'revision':revision,'deleted_at':{'$exists':False}}, {'$set':{'deleted_at':now()},'$inc':{'revision':1}},return_document=True)
     if not row: raise HTTPException(409,'This record changed or was deleted. Reload before trying again.')
     return {'id':key,'deleted':True,'revision':row['revision']}
 
 @app.post('/coffees')
-async def create_coffee(data:Coffee): return await save(db.coffees,str(uuid.uuid4()),data)
+async def create_coffee(data:Coffee,request:Request): return await save(db.coffees,str(uuid.uuid4()),data,request.state.account_id)
 @app.put('/coffees/{key}')
-async def edit_coffee(key:str,data:Coffee): return await save(db.coffees,key,data)
+async def edit_coffee(key:str,data:Coffee,request:Request): return await save(db.coffees,key,data,request.state.account_id)
 @app.post('/shots')
-async def create_shot(data:Shot): return await write_shot(str(uuid.uuid4()),data)
+async def create_shot(data:Shot,request:Request): return await write_shot(str(uuid.uuid4()),data,request.state.account_id)
 @app.put('/shots/{key}')
-async def edit_shot(key:str,data:Shot): return await write_shot(key,data)
-async def write_shot(key,data):
+async def edit_shot(key:str,data:Shot,request:Request): return await write_shot(key,data,request.state.account_id)
+async def write_shot(key,data,account_id):
     is_new=not data.revision
     if data.revision:
-        existing=await db.shots.find_one({'id':key,'revision':data.revision})
+        existing=await db.shots.find_one({'account_id':account_id,'id':key,'revision':data.revision})
         if not existing: raise HTTPException(409,'This record changed. Reload it before saving again.')
         try: data=Shot(**{**clean(existing),**data.model_dump(exclude_unset=True)})
         except ValueError: raise HTTPException(422,'Target upper bound must be at least the target grams.')
@@ -235,13 +246,13 @@ async def write_shot(key,data):
             stamp=datetime.fromisoformat(data.recorded_at.replace('Z','+00:00'))
             if stamp.tzinfo is None: raise ValueError()
         except ValueError: raise HTTPException(422,'Shot timestamp must include a timezone.')
-    coffee_query={'id':data.coffee_id,'deleted_at':{'$exists':False}}
+    coffee_query={'account_id':account_id,'id':data.coffee_id,'deleted_at':{'$exists':False}}
     if is_new: coffee_query['archived']={'$ne':True}
     if not await db.coffees.find_one(coffee_query): raise HTTPException(404,'Coffee not found')
     if data.date:
         try: datetime.fromisoformat(data.date.replace('Z','+00:00'))
         except ValueError: raise HTTPException(422,'Use an ISO date or leave the unknown shot date empty.')
-    return await save(db.shots,key,data)
+    return await save(db.shots,key,data,account_id)
 
 class Chat(BaseModel):
     id:str=Field(min_length=1,max_length=100)
@@ -257,23 +268,25 @@ class Chat(BaseModel):
         return self
 
 @app.post('/chat')
-async def chat(data:Chat):
+async def chat(data:Chat,request:Request):
     if not AI_ENABLED: raise HTTPException(404,'Chat is not enabled in this profile.')
-    previous=await db.jobs.find_one({'id':data.id})
+    account_id=request.state.account_id
+    previous=await db.jobs.find_one({'account_id':account_id,'id':data.id})
     if previous:return clean(previous)
     if not data.message.strip():raise HTTPException(422,'Enter a message')
-    if await db.jobs.find_one({'status':{'$in':['queued','running']}}):raise HTTPException(409,'A chat reply is already running.')
-    job={'id':data.id,'message':data.message,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'token':secrets.token_urlsafe(32),'receipts':[]}
+    if await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}}):raise HTTPException(409,'A chat reply is already running.')
+    job={'account_id':account_id,'id':data.id,'message':data.message,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'token':secrets.token_urlsafe(32),'receipts':[]}
     await db.jobs.insert_one(job)
-    await db.messages.insert_one({'id':data.id+'-user','role':'user','text':data.message})
+    await db.messages.insert_one({'account_id':account_id,'id':data.id+'-user','role':'user','text':data.message})
     task=asyncio.create_task(run_chat(job));tasks.add(task);task.add_done_callback(tasks.discard)
     return clean(job)
 
 async def chat_prompt(job):
-    coffees=[clean(c) async for c in db.coffees.find({'deleted_at':{'$exists':False}})]
+    account_id=job['account_id']
+    coffees=[clean(c) async for c in db.coffees.find({'account_id':account_id,'deleted_at':{'$exists':False}})]
     selected=next((c for c in coffees if c['id']==job['coffee_id']),None)
     coffee_ids=[selected['id']] if selected else [c['id'] for c in coffees]
-    recent=[clean(s) async for s in db.shots.find({'coffee_id':{'$in':coffee_ids},'status':'logged','deleted_at':{'$exists':False}})]
+    recent=[clean(s) async for s in db.shots.find({'account_id':account_id,'coffee_id':{'$in':coffee_ids},'status':'logged','deleted_at':{'$exists':False}})]
     recent.sort(key=shot_sort_key)
     catalog=[{'id':c['id'],'name':c['name'],'roast_date':c.get('roast_date',''),'notes':c.get('notes',''),'archived':c.get('archived',False)} for c in coffees]
     return json.dumps({'request':job['message'],'selected_coffee_id':job['coffee_id'],'job_id':job['id'],
@@ -284,22 +297,23 @@ async def chat_prompt(job):
 async def run_chat(job):
     async with lock:
         try:
-            await db.jobs.update_one({'id':job['id']},{'$set':{'status':'running'}})
-            pointer=await db.meta.find_one({'_id':'chat'}) or {}
+            account_id=job['account_id']
+            await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'running'}})
+            pointer=await db.meta.find_one({'_id':account_id}) or {}
             prompt=await chat_prompt(job)
             async with httpx.AsyncClient(timeout=300) as http:
                 response=await http.post(os.getenv('AI_URL','http://127.0.0.1:8102')+'/message',content=prompt,headers={'Content-Type':'text/plain','X-Agent-Session-Id':pointer.get('session_id',''),'X-Coffee-Token':job['token']})
                 response.raise_for_status()
-            await db.meta.update_one({'_id':'chat'},{'$set':{'session_id':response.headers['x-agent-session-id']}},upsert=True)
-            await db.messages.update_one({'id':job['id']+'-assistant'},{'$setOnInsert':{'id':job['id']+'-assistant','role':'assistant','text':response.text.strip()}},upsert=True)
-            await db.jobs.update_one({'id':job['id']},{'$set':{'status':'complete'}})
+            await db.meta.update_one({'_id':account_id},{'$set':{'session_id':response.headers['x-agent-session-id']}},upsert=True)
+            await db.messages.update_one({'account_id':account_id,'id':job['id']+'-assistant'},{'$setOnInsert':{'account_id':account_id,'id':job['id']+'-assistant','role':'assistant','text':response.text.strip()}},upsert=True)
+            await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'complete'}})
         except Exception as exc:
-            await db.jobs.update_one({'id':job['id']},{'$set':{'status':'failed','error':str(exc)[:500]}})
+            await db.jobs.update_one({'account_id':job['account_id'],'id':job['id']},{'$set':{'status':'failed','error':str(exc)[:500]}})
 
 @app.get('/chat/{key}')
-async def job_status(key:str):
+async def job_status(key:str,request:Request):
     if not AI_ENABLED: raise HTTPException(404,'Chat is not enabled in this profile.')
-    job=await db.jobs.find_one({'id':key})
+    job=await db.jobs.find_one({'account_id':request.state.account_id,'id':key})
     if not job:raise HTTPException(404,'Chat job not found')
     return clean(job)
 
@@ -311,9 +325,9 @@ async def authorize(token):
 @app.get('/agent/context')
 async def agent_context(x_coffee_token:str=Header(),auth_only:bool=False):
     if not AI_ENABLED: raise HTTPException(404,'Chat is not enabled in this profile.')
-    await authorize(x_coffee_token)
+    job=await authorize(x_coffee_token)
     if auth_only:return {"authorized":True}
-    snapshot=await state()
+    snapshot=await state_for(job['account_id'])
     source=ROOT/'data/source-logbook.md'
     return {'coffees':snapshot['coffees'],'shots':snapshot['shots'],'original_logbook':source.read_text() if source.exists() else ''}
 
@@ -328,7 +342,7 @@ async def agent_save(body:AgentWrite,x_coffee_token:str=Header()):
     if body.kind=='shot':
         data={**body.data}
         if not body.id and not data.get('date'): data['date']=job.get('shot_date',now()[:10])
-        row=await write_shot(body.id or str(uuid.uuid4()),Shot(**data))
-    else:row=await save(db.coffees,body.id or str(uuid.uuid4()),Coffee(**body.data))
-    await db.jobs.update_one({'id':job['id']},{'$push':{'receipts':{'kind':body.kind,'record':row}}})
+        row=await write_shot(body.id or str(uuid.uuid4()),Shot(**data),job['account_id'])
+    else:row=await save(db.coffees,body.id or str(uuid.uuid4()),Coffee(**body.data),job['account_id'])
+    await db.jobs.update_one({'account_id':job['account_id'],'id':job['id']},{'$push':{'receipts':{'kind':body.kind,'record':row}}})
     return row

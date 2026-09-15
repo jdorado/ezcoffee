@@ -1,19 +1,31 @@
 # Open-source release gate
 
-Publication is intentionally paused until maintainer QA is complete.
+Publication and hosted deployment were approved by the maintainer on
+2026-09-15. Checks remain evidence gates, not paperwork.
 
 ## Automated checks
 
-- [ ] `npm run build`
-- [ ] `npm --prefix coffee_app audit --omit=dev --omit=optional`
-- [ ] `uvx pip-audit -r coffee_api/requirements.txt`
-- [ ] `npm test`
-- [ ] `docker compose config`
-- [ ] `docker compose build`
-- [ ] Fresh self-host startup reaches `/health` and the browser UI.
-- [ ] Chat, sign-in, and personal equipment defaults are absent in self-host mode.
-- [ ] Create, edit, repeat, archive, restore, and delete work with fresh data.
-- [ ] Restart preserves the Docker volume data.
+- [x] `npm run build`
+- [x] `npm --prefix coffee_app audit --omit=dev --omit=optional`
+- [x] `uvx pip-audit -r coffee_api/requirements.txt`
+- [x] `npm test`
+- [x] `docker compose config`
+- [x] `docker compose build`
+- [x] Fresh self-host startup reaches `/health` and the browser UI.
+- [x] Chat, sign-in, and personal equipment defaults are absent in self-host mode.
+- [x] Create, edit, repeat, archive, restore, and delete work with fresh data.
+- [x] Restart preserves the Docker volume data.
+
+## Hosted production
+
+- [x] Every hosted read and mutation is scoped by the verified Privy subject.
+- [x] Automated two-user isolation covers coffee, shot, and profile access.
+- [x] Hosted mode fails closed without authentication and rejects private AI.
+- [ ] `ezcoffee.space` serves the Vercel production build from `main`.
+- [ ] `api.ezcoffee.space` reaches only the loopback-bound VM API through TLS.
+- [ ] Privy permits the production origin and a new user can sign up and log out.
+- [ ] Signed-in create, edit, repeat, archive, restore, and delete pass in production.
+- [ ] A second production account cannot read or mutate the first account's data.
 
 ## Personal regression
 
@@ -33,8 +45,8 @@ Publication is intentionally paused until maintainer QA is complete.
 - [x] Start from a clean history that excludes the private repository's old
       infrastructure URLs and deployment paths.
 - [ ] Confirm the MIT license and public repository name.
-- [ ] Obtain explicit maintainer approval after QA before pushing, changing
-      visibility, creating a public repository, or publishing a release.
+- [x] Obtain explicit maintainer approval before pushing, creating a public
+      repository, and deploying the hosted service.
 
 ## Evidence after approval
 

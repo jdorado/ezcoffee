@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+revision="${1:-}"
+checkout=/opt/ezcoffee
+runtime=/etc/ezcoffee/hosted.env
+
+if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Expected a full Git commit SHA." >&2
+  exit 2
+fi
+if [[ ! -f "$runtime" ]]; then
+  echo "Missing $runtime." >&2
+  exit 3
+fi
+
+git -C "$checkout" fetch --quiet origin main
+git -C "$checkout" cat-file -e "$revision^{commit}"
+git -C "$checkout" checkout --quiet --detach "$revision"
+docker compose \
+  --env-file "$runtime" \
+  -f "$checkout/compose.hosted.yml" \
+  up -d --build --wait
+
+health="$(curl --fail --silent --show-error http://127.0.0.1:18085/health)"
+python3 -c 'import json,sys; value=json.loads(sys.argv[1]); assert value == {"status":"ok","app_mode":"hosted"}' "$health"

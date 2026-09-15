@@ -20,7 +20,7 @@ class CoffeeContract(unittest.TestCase):
   rows=[self.http.post('/shots',json={'coffee_id':coffee['id'],'date':f'2026-09-{day:02}','rating':4}).json() for day in range(1,7)]
   self.http.delete('/shots/'+rows[-1]['id']+'?revision=1')
   plan=self.http.post('/shots',json={'coffee_id':coffee['id'],'status':'planned','date':'2026-09-09'}).json()
-  payload=json.loads(self.http.portal.call(chat_prompt,{'id':'test','message':'That shot was nice','coffee_id':coffee['id']}))
+  payload=json.loads(self.http.portal.call(chat_prompt,{'account_id':'test-owner','id':'test','message':'That shot was nice','coffee_id':coffee['id']}))
   recent=payload['current_records']['recent_logged_shots']
   self.assertEqual([s['id'] for s in recent],[s['id'] for s in rows[1:5]][::-1])
   self.assertEqual(recent[0]['rating'],4)
@@ -56,8 +56,8 @@ class CoffeeContract(unittest.TestCase):
   # Public repositories ship no personal seed data; contract fixtures are isolated here.
   from pymongo import MongoClient
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
-  database.coffees.insert_many([{'id':f'coffee-{index}','name':f'Test coffee {index}','roast_date':'','notes':'','tag_color':'','archived':False,'revision':1} for index in range(1,7)])
-  database.shots.insert_many([{'id':f'import-{index}','coffee_id':'coffee-1','revision':1,'date':f'2026-09-0{index+2}','status':'planned','source':'test fixture'} for index in range(1,6)])
+  database.coffees.insert_many([{'account_id':'test-owner','id':f'coffee-{index}','name':f'Test coffee {index}','roast_date':'','notes':'','tag_color':'','archived':False,'revision':1} for index in range(1,7)])
+  database.shots.insert_many([{'account_id':'test-owner','id':f'import-{index}','coffee_id':'coffee-1','revision':1,'date':f'2026-09-0{index+2}','status':'planned','source':'test fixture'} for index in range(1,6)])
   database.client.close()
  @classmethod
  def tearDownClass(cls):
@@ -71,7 +71,7 @@ class CoffeeContract(unittest.TestCase):
  def test_seed_preserves_plans_and_chronological_dates(self):
   state=self.http.get('/state').json()
   self.assertEqual(len([c for c in state['coffees'] if c['id'].startswith('coffee-')]),6)
-  self.assertEqual(sum(x['status']=='planned' for x in state['shots']),5)
+  self.assertEqual(sum(x['status']=='planned' for x in state['shots'] if x['id'].startswith('import-')),5)
   imported=[x for x in state['shots'] if x['id'].startswith('import-')]
   self.assertTrue(all(x['date'] for x in imported))
   self.assertLess(next(x['date'] for x in imported if x['id']=='import-1'),next(x['date'] for x in imported if x['id']=='import-2'))
@@ -137,7 +137,7 @@ class CoffeeContract(unittest.TestCase):
   self.assertTrue(archived['archived'])
   self.assertTrue(next(c for c in self.http.get('/state').json()['coffees'] if c['id']==coffee['id'])['archived'])
   self.assertEqual(self.http.post('/shots',json={'coffee_id':coffee['id']}).status_code,404)
-  payload=json.loads(self.http.portal.call(chat_prompt,{'id':'archive-test','message':'What should I buy next?','coffee_id':None}))
+  payload=json.loads(self.http.portal.call(chat_prompt,{'account_id':'test-owner','id':'archive-test','message':'What should I buy next?','coffee_id':None}))
   self.assertTrue(next(row for row in payload['current_records']['coffee_catalog'] if row['id']==coffee['id'])['archived'])
   restored=self.http.put('/coffees/'+coffee['id'],json={**archived,'archived':False}).json()
   self.assertFalse(restored['archived'])
@@ -153,17 +153,17 @@ class CoffeeContract(unittest.TestCase):
  def test_gateway_returns_and_records_canonical_receipt(self):
   from pymongo import MongoClient
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
-  database.jobs.insert_one({'id':'gateway-test','token':'test-only','status':'running','shot_date':'2026-09-08','receipts':[]})
+  database.jobs.insert_one({'account_id':'test-owner','id':'gateway-test','token':'test-only','status':'running','shot_date':'2026-09-08','receipts':[]})
   response=self.http.post('/agent/save',headers={'X-Coffee-Token':'test-only'},json={'kind':'shot','data':{'coffee_id':'coffee-1','dose':14,'taste':'test only','outcome':'choked','target_yield_g':30}})
   self.assertEqual(response.status_code,200)
   row=response.json()
-  receipt=database.jobs.find_one({'id':'gateway-test'})['receipts'][0]
+  receipt=database.jobs.find_one({'account_id':'test-owner','id':'gateway-test'})['receipts'][0]
   self.assertEqual(receipt['record'],row)
   self.assertEqual(row['outcome'],'choked')
   self.assertEqual(row['target_yield_g'],30)
   self.assertEqual(row['date'],'2026-09-08')
-  self.assertEqual(database.shots.find_one({'id':row['id']})['taste'],'test only')
-  database.jobs.update_one({'id':'gateway-test'},{'$set':{'status':'complete'}})
+  self.assertEqual(database.shots.find_one({'account_id':'test-owner','id':row['id']})['taste'],'test only')
+  database.jobs.update_one({'account_id':'test-owner','id':'gateway-test'},{'$set':{'status':'complete'}})
   database.client.close()
  def test_production_rejects_anonymous_and_other_accounts(self):
   from unittest.mock import patch, AsyncMock
@@ -175,6 +175,27 @@ class CoffeeContract(unittest.TestCase):
     self.assertEqual(self.http.get('/state',headers={'Authorization':'Bearer test'}).status_code,403)
    with patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id='owner'))):
     self.assertEqual(self.http.get('/state',headers={'Authorization':'Bearer test'}).status_code,200)
+ def test_hosted_accounts_are_isolated(self):
+  from unittest.mock import patch
+  from types import SimpleNamespace
+  async def verify(token): return SimpleNamespace(user_id=token)
+  headers_a={'Authorization':'Bearer user-a'}
+  headers_b={'Authorization':'Bearer user-b'}
+  with patch('src.main.APP_MODE','hosted'),patch('src.main.verify_privy_access_token',verify):
+   coffee=self.http.post('/coffees',headers=headers_a,json={'name':'Only A'}).json()
+   shot=self.http.post('/shots',headers=headers_a,json={'coffee_id':coffee['id'],'dose':18}).json()
+   saved=self.http.put('/profile',headers=headers_a,json={'brew_method':'filter','equipment_preset':'standard_pour_over','equipment_name':'A brewer','tracked_fields':['dose','water_g'],'revision':0})
+   self.assertEqual(saved.status_code,200)
+   state_b=self.http.get('/state',headers=headers_b).json()
+   self.assertFalse(any(row['id']==coffee['id'] for row in state_b['coffees']))
+   self.assertFalse(any(row['id']==shot['id'] for row in state_b['shots']))
+   self.assertEqual(state_b['profile']['equipment_name'],'')
+   self.assertEqual(self.http.put('/coffees/'+coffee['id'],headers=headers_b,json={**coffee,'revision':coffee['revision'],'name':'Stolen'}).status_code,409)
+   self.assertEqual(self.http.delete('/shots/'+shot['id']+'?revision=1',headers=headers_b).status_code,409)
+   self.assertEqual(self.http.post('/shots',headers=headers_b,json={'coffee_id':coffee['id'],'dose':18}).status_code,404)
+   state_a=self.http.get('/state',headers=headers_a).json()
+   self.assertEqual(next(row for row in state_a['coffees'] if row['id']==coffee['id'])['name'],'Only A')
+   self.assertTrue(any(row['id']==shot['id'] for row in state_a['shots']))
  def test_gateway_requires_live_job(self):
   self.assertEqual(self.http.get('/agent/context',headers={'X-Coffee-Token':'bad'}).status_code,403)
   self.assertEqual(self.http.post('/agent/save',headers={'X-Coffee-Token':'bad'},json={'kind':'coffee','data':{'name':'blocked'}}).status_code,403)

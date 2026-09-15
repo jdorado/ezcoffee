@@ -1,0 +1,22 @@
+name: ezcoffee-hosted
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: coffee_api/Dockerfile
+    env_file:
+      - ${EZCOFFEE_RUNTIME_ENV:-/etc/ezcoffee/hosted.env}
+    environment:
+      APP_MODE: hosted
+      COFFEE_REQUIRE_AUTH: "true"
+      COFFEE_AI_ENABLED: "false"
+      COFFEE_CORS_ORIGINS: https://ezcoffee.space,https://www.ezcoffee.space
+    ports:
+      - "127.0.0.1:${EZCOFFEE_API_PORT:-18085}:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 12

@@ -17,8 +17,7 @@ own Codex CLI. It does not need public signup or billing.
 - Use Mongo for both self-hosted and hosted versions. No SQLite.
 - Host the public app on Vercel and use a free Mongo instance while within the
   free-tier limits.
-- Keep one codebase. The first release supports `APP_MODE=selfhost|personal`;
-  add `hosted` only with the multi-account phase.
+- Keep one codebase with `APP_MODE=selfhost|hosted|personal`.
 - Use one hosted AI provider, configured by server-side URL, model, and API key.
 - Do not share my personal Codex CLI, session, credentials, or data with public
   users.
@@ -73,11 +72,11 @@ None of these steps requires migrating or changing my personal app.
 
 ## Current release gate
 
-- The self-hosted profile is prepared but stays unpublished until maintainer QA.
-- Public name: Coffee Logbook.
+- The self-hosted and free hosted profiles are in release verification.
+- Public name: ezcoffee.
 - License: MIT.
 
-## Decisions left for hosted phases
+## Decisions left for AI phases
 
 - Annual price and AI usage limit.
 - Hosted model/provider.

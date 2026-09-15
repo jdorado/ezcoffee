@@ -1,8 +1,8 @@
 # ezcoffee
 
-A small, self-hosted coffee journal for tracking coffees, recipes, tasting
-notes, and dial-in experiments. The default open-source profile is a private
-single-user app on your own machine: no signup, billing, analytics, or AI.
+A small coffee journal for tracking coffees, recipes, tasting notes, and dial-in
+experiments. Run the open-source single-user profile yourself, or use the free
+hosted app at [ezcoffee.space](https://ezcoffee.space).
 
 ## Features
 
@@ -57,7 +57,28 @@ DEFAULT_TEMP=I
 DEFAULT_PUCK_SCREEN=yes
 ```
 
-## Production deployment
+## Hosted app
+
+The hosted profile exposes the complete coffee, profile, and brew-log product
+for free. Privy provides sign-up and sign-in; Mongo records are scoped to the
+verified account on every request. Chat remains visible but disabled because
+the maintainer's private AI runtime is not part of the public service.
+
+The frontend deploys from `coffee_app` on Vercel with these environment values:
+
+```dotenv
+APP_MODE=hosted
+CHAT_ENABLED=false
+API_BASE_URL=https://api.ezcoffee.space
+PRIVY_APP_ID=your-public-privy-app-id
+```
+
+The API runs on a VM with [compose.hosted.yml](compose.hosted.yml), bound to
+loopback and proxied through HTTPS. Its Mongo and Privy secrets live in
+`/etc/ezcoffee/hosted.env`, not in the checkout. A push to `main` must pass CI
+before GitHub Actions deploys that exact commit.
+
+## Self-host production deployment
 
 There are only two environments: local and production. Production uses the
 same `compose.yml` but receives its Mongo connection from an ignored secret
@@ -109,11 +130,12 @@ there is no anonymous development fallback.
 ## Profiles and roadmap
 
 - `selfhost` is the public default and includes only Shots.
+- `hosted` provides free Privy accounts with isolated coffee and shot records;
+  it does not receive private AI credentials.
 - `personal` is an opt-in migration profile. The existing private repository
   remains the production source of truth until each private capability is
   deliberately migrated and accepted here.
-- Multi-account hosted signup, subscriptions, and hosted AI are future phases;
-  they are not claimed by this release.
+- Billing and hosted AI are future phases; they are not claimed by this release.
 
 The private profile is documented in
 [docs/PERSONAL_PROFILE.md](docs/PERSONAL_PROFILE.md). Product scope and staged
