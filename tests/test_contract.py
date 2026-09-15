@@ -2,6 +2,7 @@ import asyncio, os, sys, unittest, uuid
 from pathlib import Path
 os.environ['APP_MODE']='personal'
 os.environ['COFFEE_AI_ENABLED']='true'
+os.environ['COFFEE_AI_BACKEND']='codex'
 os.environ['COFFEE_REQUIRE_AUTH']='true'
 os.environ['COFFEE_OWNER_SUB']='test-owner'
 os.environ['PRIVY_APP_ID']='test-app'
