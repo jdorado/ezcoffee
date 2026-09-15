@@ -36,10 +36,10 @@ Publication and hosted deployment were approved by the maintainer on
 
 ## Publication review
 
-- [ ] Review the current tracked tree for secrets, personal data, private URLs,
+- [x] Review the current tracked tree for secrets, personal data, private URLs,
       absolute host paths, and machine-specific image or volume names.
-- [ ] Review dependency audit results and document any accepted risk.
-- [ ] Resolve or explicitly accept advisories in the optional personal
+- [x] Review dependency audit results and document any accepted risk.
+- [x] Resolve or explicitly accept advisories in the optional personal
       Privy/wallet and development toolchains. The dependencies shipped in the
       self-host runtime currently pass their focused audit.
 - [x] Start from a clean history that excludes the private repository's old
@@ -54,3 +54,15 @@ Publication and hosted deployment were approved by the maintainer on
 - [ ] Confirm CI passes on the exact public commit.
 - [ ] Clone into a fresh directory and complete the README quick start.
 - [ ] Record the public commit SHA and release URL.
+
+## Dependency review notes
+
+- The production npm audit with development and optional packages omitted is
+  clean, and the Python audit reports no known vulnerabilities.
+- `copy-webpack-plugin` was upgraded to remove its vulnerable serializer.
+- The full npm graph still reports upstream advisories through Privy's optional
+  wallet transports and the local webpack development server. ezcoffee enables
+  only email and Google login, not wallet login; the deployed backend contains
+  none of these JavaScript packages. This release accepts that bounded client
+  risk while retaining the established Privy client, and CI continues to gate
+  the production dependency set.
