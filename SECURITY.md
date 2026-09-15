@@ -18,3 +18,6 @@ the maintainer's private Codex credentials and sessions are never deployed.
 Production secrets belong in Vercel, GitHub Actions, or a mode-0600 runtime file
 outside the VM checkout. Rotate a credential immediately if it appears in an
 issue, log, commit, or pull request.
+
+The GitHub Actions SSH key is forced to a single command that accepts only a
+full commit SHA. It cannot open a shell or choose another deployment operation.

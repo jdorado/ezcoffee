@@ -75,6 +75,6 @@ jobs:
           REVISION: ${{ github.sha }}
         run: |
           ssh -i "$HOME/.ssh/ezcoffee" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "sudo /usr/local/sbin/deploy-ezcoffee '$REVISION'"
+            "$REVISION"
       - name: Verify API
         run: curl --fail --silent --show-error --retry 12 --retry-delay 5 https://api.ezcoffee.space/health

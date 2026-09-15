@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+revision="${SSH_ORIGINAL_COMMAND:-}"
+if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "This key can deploy only a full Git commit SHA." >&2
+  exit 2
+fi
+
+exec sudo /usr/local/sbin/deploy-ezcoffee "$revision"
