@@ -65,7 +65,7 @@ class OpenRouterSettings:
         if not model:
             raise OpenRouterConfigError("OPENROUTER_MODEL cannot be empty when hosted chat is enabled.")
         try:
-            max_output_tokens = int(os.getenv("OPENROUTER_MAX_OUTPUT_TOKENS", "500"))
+            max_output_tokens = int(os.getenv("OPENROUTER_MAX_OUTPUT_TOKENS", "1200"))
             timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "30"))
         except ValueError as exc:
             raise OpenRouterConfigError("OpenRouter token and timeout limits must be numbers.") from exc
@@ -84,7 +84,7 @@ class OpenRouterSettings:
 
 def build_messages(prompt: str, history: list[dict[str, str]]) -> list[dict[str, str]]:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for message in history[-6:]:
+    for message in history[-2:]:
         role = message.get("role")
         text = message.get("text", "").strip()
         if role in {"user", "assistant"} and text:

@@ -194,7 +194,7 @@ class CoffeeContract(unittest.TestCase):
   context=json.loads(prompt)
   self.assertEqual(context['current_records']['selected_coffee']['id'],'coffee-1')
   self.assertNotIn('account_id',prompt)
-  self.assertLessEqual(len(history),6)
+  self.assertLessEqual(len(history),2)
   saved=database.messages.find_one({'account_id':'test-owner','id':job['id']+'-assistant'})
   self.assertEqual(saved['text'],'Try one small grind adjustment.')
   self.assertEqual(database.jobs.find_one({'account_id':'test-owner','id':job['id']})['status'],'complete')

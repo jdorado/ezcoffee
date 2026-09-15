@@ -321,7 +321,7 @@ async def run_chat(job):
         if AI_BACKEND == 'openrouter':
             history=[clean(row) async for row in db.messages.find(
                 {'account_id':account_id,'id':{'$ne':job['id']+'-user'}}
-            ).sort('_id',-1).limit(6)]
+            ).sort('_id',-1).limit(2)]
             result=await openrouter_reply(prompt,list(reversed(history)))
             for action in result.actions:
                 await apply_inference_action(job,action)

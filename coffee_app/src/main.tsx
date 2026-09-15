@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react'
+import {useEffect,useLayoutEffect,useRef,useState} from 'react'
 import {api,blankShot,today} from './api'
 import type {BrewProfile,Coffee,Shot,Message,TrackedField} from './api'
 import ChatComposer from './components/chat/ChatComposer'
@@ -44,7 +44,7 @@ export default function App({onLogout}:{onLogout?:()=>void}){
  async function removeRecord(){const row=draft||coffeeDraft;if(!row?.id)return;const kind=draft?'shot':'coffee';if(!window.confirm(kind==='coffee'?`Delete ${coffeeDraft?.name} and remove all its shots from your logbook?`:'Delete this shot?'))return;setSaving(true);setError('');try{await api(`/${kind==='coffee'?'coffees':'shots'}/${row.id}?revision=${row.revision}`,'DELETE');setDraft(null);setCoffeeDraft(null);await refresh()}catch(e){setError((e as Error).message)}finally{setSaving(false)}}
  useEffect(()=>{refresh().catch(e=>{setError(e.message);setLoading(false)})},[])
  useEffect(()=>{if(draft||coffeeDraft)dialog.current?.showModal();else dialog.current?.close()},[!!draft,!!coffeeDraft])
- useEffect(()=>{const list=messagesView.current;list?.scrollTo({top:list.scrollHeight,behavior:'smooth'})},[messages,job,tab])
+ useLayoutEffect(()=>{const list=messagesView.current;if(list)list.scrollTop=list.scrollHeight},[messages,job,tab])
  useEffect(()=>{
   const viewport=window.visualViewport,root=document.documentElement
   let frame=0,baseline=Math.max(window.innerHeight,root.clientHeight)

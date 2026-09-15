@@ -34,8 +34,8 @@ class OpenRouterContract(unittest.TestCase):
         self.assertEqual(payload["model"], "provider/small-model")
         self.assertEqual(payload["provider"], {"data_collection": "deny", "require_parameters": True})
         self.assertTrue(payload["response_format"]["json_schema"]["strict"])
-        self.assertEqual(len(payload["messages"]), 8)
-        self.assertEqual(payload["messages"][1]["content"], "message 4")
+        self.assertEqual(len(payload["messages"]), 4)
+        self.assertEqual(payload["messages"][1]["content"], "message 8")
         self.assertNotIn("unit-test-value", str(payload))
 
     def test_response_requires_assistant_text(self):
