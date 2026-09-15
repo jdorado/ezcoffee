@@ -100,7 +100,7 @@ export default function App({onLogout}:{onLogout?:()=>void}){
   <header className="app-top-bar">
    <a className="brand" href="#" aria-label="ezcoffee home" onClick={e=>{e.preventDefault();setTab('shots')}}><img className="brand-logo" src="/ezcoffee-logo-header.png" alt="ezcoffee"/></a>
    <nav aria-label="Primary">{['shots','profile','chat'].map(t=>{const chatDisabled=t==='chat'&&!profile.chatEnabled;return <button key={t} disabled={chatDisabled} title={chatDisabled?'Chat is not enabled in this profile':undefined} aria-pressed={tab===t} className={tab===t?'active':''} onClick={()=>setTab(t)}><Icon name={t==='chat'?'chat':t==='profile'?'bean':'cup'}/>{t==='chat'?'Chat':t==='profile'?'Profile':isFilter?'Brews':'Shots'}</button>})}</nav>
-   <div className="header-actions"><span className="setup-label"><span className="status-dot"/>{brewProfile.equipment_name||profile.setupLabel||'Coffee setup'}</span>{onLogout&&<button className="sign-out-header" onClick={onLogout} aria-label="Sign out" title="Sign out"><Icon name="logout"/></button>}</div>
+   {onLogout&&<div className="header-actions"><button className="sign-out-header" onClick={onLogout} aria-label="Sign out" title="Sign out"><Icon name="logout"/></button></div>}
   </header>
   {error&&<div role="alert" className="error">{error}<button onClick={()=>setError('')} aria-label="Dismiss error">×</button></div>}
   {loading?<main className="loading-view"><LoadingLogbook/></main>:tab==='profile'?<ProfileView value={brewProfile} onChange={setBrewProfile} onSave={saveProfile} saving={saving}/>:tab==='shots'?<main className="shots-view">
