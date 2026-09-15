@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:8.0
+        ports:
+          - 27019:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: coffee_app/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: coffee_api/requirements.txt
+      - run: npm --prefix coffee_app ci
+      - run: python -m venv coffee_api/.venv && coffee_api/.venv/bin/pip install -r coffee_api/requirements.txt
+      - run: npm run build
+        env:
+          APP_MODE: selfhost
+          CHAT_ENABLED: "false"
+      - run: npm --prefix coffee_app audit --omit=dev --omit=optional
+      - run: python -m pip install pip-audit && pip-audit -r coffee_api/requirements.txt
+      - run: npm test

@@ -1,0 +1,57 @@
+name: ezcoffee
+services:
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: coffee_api/Dockerfile
+    environment:
+      APP_MODE: selfhost
+      COFFEE_AI_ENABLED: "false"
+      COFFEE_REQUIRE_AUTH: "false"
+      MONGO_URL: mongodb://mongo:27017
+      MONGO_DB: ${MONGO_DB:-coffee_logbook}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 12
+
+  web:
+    build:
+      context: .
+      dockerfile: coffee_app/Dockerfile
+      args:
+        APP_MODE: selfhost
+        CHAT_ENABLED: "false"
+        ESPRESSO_MACHINE_LABEL: ${ESPRESSO_MACHINE_LABEL:-}
+        GRINDER_LABEL: ${GRINDER_LABEL:-}
+        DEFAULT_DOSE_G: ${DEFAULT_DOSE_G:-}
+        DEFAULT_GRIND: ${DEFAULT_GRIND:-}
+        DEFAULT_BASKET: ${DEFAULT_BASKET:-}
+        DEFAULT_PAPER: ${DEFAULT_PAPER:-unknown}
+        DEFAULT_TEMP: ${DEFAULT_TEMP:-}
+        DEFAULT_PUCK_SCREEN: ${DEFAULT_PUCK_SCREEN:-unknown}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${COFFEE_WEB_PORT:-5176}:80"
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

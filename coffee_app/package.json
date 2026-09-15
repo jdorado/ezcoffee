@@ -1,0 +1,35 @@
+{
+  "name": "ezcoffee-app",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "webpack serve --mode development --host 127.0.0.1 --port 5176",
+    "build": "tsc && webpack --mode production",
+    "build:selfhost": "webpack --mode production"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "copy-webpack-plugin": "^12.0.2",
+    "css-loader": "^7.1.2",
+    "dotenv": "^16.4.5",
+    "html-webpack-plugin": "^5.6.0",
+    "serve": "^14.2.4",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "~5.9.3",
+    "webpack": "^5.98.0",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^5.0.4"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.15",
+    "marked": "^17.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.10"
+  },
+  "optionalDependencies": {
+    "@privy-io/react-auth": "^3.40.0"
+  }
+}

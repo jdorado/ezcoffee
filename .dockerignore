@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/.venv
+**/dist
+**/__pycache__
+**/.env*
+data
+coffee_api/coffee_ai/workspace/*
+!coffee_api/coffee_ai/workspace/AGENTS.md
