@@ -131,8 +131,8 @@ class Shot(BaseModel):
             raise ValueError('Target upper bound must be at least the target grams.')
         return self
 
-TrackedField=Literal['water_temp_c','water_g','ice_g','dose','ratio','grind','seconds','bloom_seconds','brand','yield_g','stop_yield_g','target_yield_g','first_drip','paper','temp','pressure','basket','puck_screen','taste_balance','rating','taste']
-ESPRESSO_FIELDS=['dose','yield_g','seconds','grind','ratio','paper','water_temp_c','pressure','taste_balance','rating','taste']
+TrackedField=Literal['water_temp_c','water_g','ice_g','dose','ratio','grind','seconds','bloom_seconds','yield_g','stop_yield_g','target_yield_g','first_drip','paper','temp','pressure','basket','puck_screen','taste_balance','rating','taste']
+ESPRESSO_FIELDS=['dose','grind','yield_g','seconds','ratio','paper','water_temp_c','pressure','taste_balance','rating','taste']
 
 class BrewProfile(BaseModel):
     brew_method:Literal['espresso','filter']='espresso'
@@ -154,7 +154,11 @@ def default_profile(): return BrewProfile().model_dump()
 
 async def read_profile():
     row=await db.profiles.find_one({'_id':'default'})
-    return clean(row) if row else default_profile()
+    if not row:return default_profile()
+    profile=clean(row)
+    # Brand belongs to the coffee record. Ignore the legacy profile toggle.
+    profile['tracked_fields']=[field for field in profile.get('tracked_fields',[]) if field!='brand']
+    return profile
 
 async def save(collection, key, data):
     payload=data.model_dump(exclude_unset=bool(data.revision)); revision=payload.pop('revision'); payload.update(id=key,revision=revision+1,updated_at=now())

@@ -16,9 +16,10 @@ single-user app on your own machine: no signup, billing, analytics, or AI.
   fields you care about.
 
 The standard pour-over preset covers water temperature and quantity, optional
-ice, coffee dose and computed ratio, grind size, total and bloom time, coffee
-brand, taste, and rating. The profile is stored in MongoDB with revision checks;
-it is not tied to one developer's machine.
+ice, coffee dose and computed ratio, grind size, total and bloom time, taste,
+and rating. Coffee brand belongs to Bean details and is stored once per coffee.
+The profile is stored in MongoDB with revision checks; it is not tied to one
+developer's machine.
 
 ## Quick start
 

@@ -30,7 +30,7 @@ export async function api(path:string,method='GET',body?:unknown){
  return value
 }
 export type Coffee={id:string;name:string;brand?:string;roast_date:string;notes:string;tag_color?:string;archived?:boolean;revision:number}
-export type TrackedField='water_temp_c'|'water_g'|'ice_g'|'dose'|'ratio'|'grind'|'seconds'|'bloom_seconds'|'brand'|'yield_g'|'stop_yield_g'|'target_yield_g'|'first_drip'|'paper'|'temp'|'pressure'|'basket'|'puck_screen'|'taste_balance'|'rating'|'taste'
+export type TrackedField='water_temp_c'|'water_g'|'ice_g'|'dose'|'ratio'|'grind'|'seconds'|'bloom_seconds'|'yield_g'|'stop_yield_g'|'target_yield_g'|'first_drip'|'paper'|'temp'|'pressure'|'basket'|'puck_screen'|'taste_balance'|'rating'|'taste'
 export type BrewProfile={brew_method:'espresso'|'filter';equipment_preset:'lelit_mara_x'|'generic_espresso'|'standard_pour_over'|'custom';equipment_name:string;tracked_fields:TrackedField[];revision:number}
 export type Shot={id?:string;coffee_id:string;revision:number;date:string;recorded_at?:string;taste_balance?:TasteBalance;choked?:boolean;rating?:number|null;dose:number|null;grind:string;paper:string;temp:string;water_temp_c?:number|null;water_g?:number|null;ice_g?:number|null;bloom_seconds?:number|null;stop_yield_g?:number|null;yield_g:number|null;target_yield_g?:number|null;target_yield_max_g?:number|null;outcome?:'unrated'|'good'|'adjust'|'bad'|'choked';locked?:boolean;seconds:number|null;first_drip:number|null;pressure:string;basket:string;puck_screen:string;status:string;taste:string;source:string}
 export type Message={id:string;role:string;text:string}

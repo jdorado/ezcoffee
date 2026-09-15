@@ -114,7 +114,7 @@ class CoffeeContract(unittest.TestCase):
  def test_profile_and_pour_over_fields_are_revisioned(self):
   default=self.http.get('/profile').json()
   self.assertEqual(default['brew_method'],'espresso')
-  fields=['water_temp_c','water_g','ice_g','dose','ratio','grind','seconds','bloom_seconds','brand','taste']
+  fields=['water_temp_c','water_g','ice_g','dose','ratio','grind','seconds','bloom_seconds','taste']
   saved=self.http.put('/profile',json={'brew_method':'filter','equipment_preset':'standard_pour_over','equipment_name':'V60','tracked_fields':fields,'revision':default['revision']})
   self.assertEqual(saved.status_code,200)
   current=saved.json()
