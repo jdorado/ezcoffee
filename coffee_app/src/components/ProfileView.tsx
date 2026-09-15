@@ -1,8 +1,31 @@
+import {useEffect,useState} from 'react'
 import type {BrewProfile,TrackedField} from '../api'
+import {installKind,onInstallChange,promptInstall} from '../installApp'
 import {allFields,fieldLabels,presets} from '../profileSettings'
 import Icon from './ui/Icon'
 
 const presetLabels={lelit_mara_x:'Lelit Mara X',generic_espresso:'Generic espresso',standard_pour_over:'Standard pour-over',custom:'Custom setup'} as const
+
+function InstallApp(){
+ const [kind,setKind]=useState(installKind)
+ const [showHelp,setShowHelp]=useState(false)
+ useEffect(()=>onInstallChange(()=>setKind(installKind())),[])
+ if(kind==='installed')return null
+ async function install(){
+  if(kind==='native'){
+   await promptInstall()
+   setKind(installKind())
+  }else setShowHelp(current=>!current)
+ }
+ const help=kind==='ios-safari'
+  ?<ol><li>Tap Safari's <strong>Share</strong> button.</li><li>Choose <strong>Add to Home Screen</strong>.</li><li>Turn on <strong>Open as Web App</strong>, then tap <strong>Add</strong>.</li></ol>
+  :kind==='ios-other'
+   ?<p>Open ezcoffee in Safari, then use <strong>Share → Add to Home Screen</strong>.</p>
+   :kind==='mac-safari'
+    ?<p>In Safari, choose <strong>File → Add to Dock</strong>, then click <strong>Add</strong>.</p>
+    :<p>Open your browser menu and choose <strong>Install app</strong> or <strong>Add to Home Screen</strong>.</p>
+ return <section className="profile-section profile-install"><div><span className="profile-step">03</span><h2>Install ezcoffee</h2><p>Keep your coffee journal on your home screen and open it like an app.</p></div><div className="install-actions"><button type="button" className="profile-install-button" onClick={install}><Icon name="install"/>{kind==='native'?'Install ezcoffee':showHelp?'Hide install steps':'Show install steps'}</button>{showHelp&&<div className="install-help" aria-live="polite">{help}</div>}</div></section>
+}
 
 export default function ProfileView({value,onChange,onSave,onLogout,saving}:{value:BrewProfile;onChange:(next:BrewProfile)=>void;onSave:()=>void;onLogout?:()=>void;saving:boolean}){
  const rows=[...value.tracked_fields,...allFields.filter(field=>!value.tracked_fields.includes(field))]
@@ -16,6 +39,7 @@ export default function ProfileView({value,onChange,onSave,onLogout,saving}:{val
    <label>Setup name<input value={value.equipment_name} placeholder="My coffee setup" onChange={event=>onChange({...value,equipment_name:event.target.value})}/></label>
   </section>
   <section className="profile-section"><div><span className="profile-step">02</span><h2>What do you track?</h2><p>Turn fields on or off. Use the arrows to set the order used in the brew form and cards.</p></div><div className="tracking-list">{rows.map(field=>{const enabled=value.tracked_fields.includes(field),index=value.tracked_fields.indexOf(field);return <div key={field} className={enabled?'enabled':''}><label><input type="checkbox" checked={enabled} onChange={()=>toggle(field)}/><span>{fieldLabels[field]}</span></label><div><button type="button" aria-label={`Move ${fieldLabels[field]} up`} disabled={!enabled||index===0} onClick={()=>move(field,-1)}>↑</button><button type="button" aria-label={`Move ${fieldLabels[field]} down`} disabled={!enabled||index===value.tracked_fields.length-1} onClick={()=>move(field,1)}>↓</button></div></div>})}</div></section>
-  {onLogout&&<section className="profile-section profile-account"><div><span className="profile-step">03</span><h2>Account</h2><p>End this signed-in session on this device.</p></div><div className="account-actions"><button type="button" className="profile-sign-out" onClick={onLogout}><Icon name="logout"/>Sign out</button></div></section>}
+  <InstallApp/>
+  {onLogout&&<section className="profile-section profile-account"><div><span className="profile-step">04</span><h2>Account</h2><p>End this signed-in session on this device.</p></div><div className="account-actions"><button type="button" className="profile-sign-out" onClick={onLogout}><Icon name="logout"/>Sign out</button></div></section>}
  </main>
 }

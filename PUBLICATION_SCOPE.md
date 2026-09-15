@@ -5,8 +5,8 @@
 Publish the app for coffee aficionados in two ways:
 
 1. **Self-hosted:** free and open source, with the Shots logbook and no AI.
-2. **Hosted:** sign up and use Shots for free. AI has a 7-day free trial and
-   then requires one annual Stripe subscription.
+2. **Hosted:** sign up and use the complete product for free, including the
+   coffee assistant. All registered users receive the same features.
 
 My personal app stays as it is today: private Mongo data, owner login, and my
 own Codex CLI. It does not need public signup or billing.
@@ -22,8 +22,8 @@ own Codex CLI. It does not need public signup or billing.
 - Do not share my personal Codex CLI, session, credentials, or data with public
   users.
 
-Vercel and Mongo can start free. The domain, Stripe fees, and AI usage are still
-costs, so the annual plan needs a reasonable AI usage limit.
+Vercel and Mongo can start free. The domain and AI usage are operating costs,
+but there is no billing or per-user feature gate for now.
 
 ## What needs to be built
 
@@ -41,24 +41,25 @@ costs, so the annual plan needs a reasonable AI usage limit.
 - Add `account_id` to each coffee and shot and scope every request to that
   account.
 - Deploy the app/API on Vercel using a separate public Mongo database.
-- Free users get the complete Shots product without AI.
+- Registered users get the complete Shots product and coffee chat.
 
-### 3. AI trial and annual plan
+### 3. Hosted coffee assistant
 
-- Add one annual Stripe subscription with a 7-day trial.
-- Start the trial only when the user chooses AI and enters payment details.
-- Use Stripe webhooks as the source of subscription status.
-- Enable AI only for trialing or active accounts and within the usage limit.
-- If the trial ends or the user cancels, disable AI but keep all coffees and
-  shots available on the free plan.
-- Use one hosted model/provider path. OpenRouter with a selected model is one
-  option; test it before committing to it.
+- Use one OpenRouter call inside the existing authenticated FastAPI API.
+- Build a bounded context from only that account's profile, selected coffee,
+  recent brews, and short conversation history.
+- Keep the provider key in the protected VM environment only.
+- Keep inference input/output compact and use one lean model alias.
+- Validate model-proposed record actions through the same account and revision
+  rules as the forms; give the model no database credentials or direct write
+  token.
 
 ## Release order
 
 1. Publish the self-hosted Shots app.
 2. Launch hosted signup with free Shots.
-3. Add the AI trial and annual subscription.
+3. Enable hosted coffee chat after adding the protected server key and
+   completing signed-in QA.
 
 None of these steps requires migrating or changing my personal app.
 
@@ -66,8 +67,8 @@ None of these steps requires migrating or changing my personal app.
 
 - A new user can self-host the Shots app from the README.
 - Two hosted users cannot see or change each other's data.
-- A hosted user can use Shots free, start the 7-day AI trial, subscribe annually,
-  cancel, and keep their non-AI logbook.
+- A hosted user can use Shots and bounded coffee chat for free without seeing
+  another account's records.
 - The personal app still works unchanged.
 
 ## Current release gate
@@ -76,7 +77,7 @@ None of these steps requires migrating or changing my personal app.
 - Public name: ezcoffee.
 - License: MIT.
 
-## Decisions left for AI phases
+## Hosted AI operations
 
-- Annual price and AI usage limit.
-- Hosted model/provider.
+- Use `~deepseek/deepseek-v4-flash-latest` through OpenRouter initially.
+- Keep billing out unless operating costs later justify a separate decision.

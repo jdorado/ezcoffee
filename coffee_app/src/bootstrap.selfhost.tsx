@@ -1,7 +1,9 @@
 import {createRoot} from 'react-dom/client'
 import App from './main'
+import {captureInstallPrompt} from './installApp'
 import './style.css'
 
+captureInstallPrompt()
 createRoot(document.getElementById('app')!).render(<App/>)
 
 if('serviceWorker' in navigator){

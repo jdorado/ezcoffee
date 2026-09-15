@@ -26,6 +26,7 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(recent[0]['rating'],4)
   self.assertEqual(recent[0]['revision'],1)
   self.assertEqual(payload['current_records']['selected_coffee']['name'],'Chat snapshot test')
+  self.assertIn('profile',payload['current_records'])
   self.assertNotIn(plan['id'],[s['id'] for s in recent])
   self.http.delete('/coffees/'+coffee['id']+'?revision=1')
  def test_timestamp_and_taste_survive_edits(self):
@@ -175,6 +176,52 @@ class CoffeeContract(unittest.TestCase):
     self.assertEqual(self.http.get('/state',headers={'Authorization':'Bearer test'}).status_code,403)
    with patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id='owner'))):
     self.assertEqual(self.http.get('/state',headers={'Authorization':'Bearer test'}).status_code,200)
+ def test_openrouter_chat_uses_bounded_account_context(self):
+  import json
+  from pymongo import MongoClient
+  from unittest.mock import AsyncMock, patch
+  from src.main import run_chat
+  from src.services.openrouter import OpenRouterReply
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  job={'account_id':'test-owner','id':'openrouter-contract','message':'What should I change next?','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'queued','created_at':'2026-09-15T00:00:00+00:00','receipts':[]}
+  database.jobs.insert_one(job)
+  database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','role':'user','text':job['message']})
+  reply=AsyncMock(return_value=OpenRouterReply(text='Try one small grind adjustment.',actions=[]))
+  with patch('src.main.AI_BACKEND','openrouter'),patch('src.main.openrouter_reply',reply):
+   self.http.portal.call(run_chat,job)
+  prompt,history=reply.await_args.args
+  context=json.loads(prompt)
+  self.assertEqual(context['current_records']['selected_coffee']['id'],'coffee-1')
+  self.assertNotIn('account_id',prompt)
+  self.assertLessEqual(len(history),6)
+  saved=database.messages.find_one({'account_id':'test-owner','id':job['id']+'-assistant'})
+  self.assertEqual(saved['text'],'Try one small grind adjustment.')
+  self.assertEqual(database.jobs.find_one({'account_id':'test-owner','id':job['id']})['status'],'complete')
+  database.client.close()
+ def test_openrouter_actions_use_canonical_account_scoped_writes(self):
+  from fastapi import HTTPException
+  from pymongo import MongoClient
+  from src.main import apply_inference_action
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  job={'account_id':'test-owner','id':'openrouter-write','shot_date':'2026-09-15'}
+  database.jobs.insert_one({**job,'status':'running','receipts':[]})
+  coffee=self.http.portal.call(apply_inference_action,job,{'kind':'coffee','id':None,'data':{'name':'AI coffee','brand':'Test roaster'}})
+  updated_coffee=self.http.portal.call(apply_inference_action,job,{'kind':'coffee','id':coffee['id'],'data':{'revision':coffee['revision'],'name':'Updated AI coffee'}})
+  self.assertEqual(updated_coffee['brand'],'Test roaster')
+  row=self.http.portal.call(apply_inference_action,job,{'kind':'shot','id':None,'data':{'coffee_id':'coffee-1','dose':14,'taste':'sweet'}})
+  self.assertEqual(row['date'],'2026-09-15')
+  self.assertEqual(database.shots.find_one({'account_id':'test-owner','id':row['id']})['taste'],'sweet')
+  updated=self.http.portal.call(apply_inference_action,job,{'kind':'shot','id':row['id'],'data':{'revision':row['revision'],'taste':'sweeter'}})
+  self.assertEqual(updated['dose'],14)
+  self.assertEqual(updated['taste'],'sweeter')
+  with self.assertRaises(HTTPException):
+   self.http.portal.call(apply_inference_action,job,{'kind':'shot','id':row['id'],'data':{'coffee_id':'coffee-1','revision':0,'taste':'stale'}})
+  database.coffees.insert_one({'account_id':'another-account','id':'private-coffee','name':'Private','revision':1})
+  with self.assertRaises(HTTPException):
+   self.http.portal.call(apply_inference_action,job,{'kind':'coffee','id':'private-coffee','data':{'revision':1,'name':'Stolen'}})
+  receipts=database.jobs.find_one({'account_id':'test-owner','id':job['id']})['receipts']
+  self.assertEqual([receipt['kind'] for receipt in receipts],['coffee','coffee','shot','shot'])
+  database.client.close()
  def test_hosted_accounts_are_isolated(self):
   from unittest.mock import patch
   from types import SimpleNamespace

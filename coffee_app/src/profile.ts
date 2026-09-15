@@ -9,7 +9,7 @@ const numberOrNull=(value:string|undefined)=>{
 const mode=process.env.APP_MODE||(process.env.PRIVY_APP_ID?'personal':'selfhost')
 export const profile={
  mode,
- chatEnabled:process.env.CHAT_ENABLED?enabled(process.env.CHAT_ENABLED):mode==='personal',
+ chatEnabled:process.env.CHAT_ENABLED?enabled(process.env.CHAT_ENABLED):mode==='hosted'||mode==='personal',
  setupLabel:[process.env.ESPRESSO_MACHINE_LABEL,process.env.GRINDER_LABEL].filter(Boolean).join(' / '),
  defaults:{
   dose:numberOrNull(process.env.DEFAULT_DOSE_G),

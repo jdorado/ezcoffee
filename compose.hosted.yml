@@ -9,8 +9,8 @@ services:
       - ${EZCOFFEE_RUNTIME_ENV:-/etc/ezcoffee/hosted.env}
     environment:
       APP_MODE: hosted
+      COFFEE_AI_BACKEND: openrouter
       COFFEE_REQUIRE_AUTH: "true"
-      COFFEE_AI_ENABLED: "false"
       COFFEE_CORS_ORIGINS: https://ezcoffee.space,https://www.ezcoffee.space
     ports:
       - "127.0.0.1:${EZCOFFEE_API_PORT:-18085}:8080"
