@@ -80,6 +80,7 @@ nav button { display: flex; align-items: center; justify-content: center; gap: 8
 nav button svg { width: 16px; height: 16px; }
 nav button.active { background: #212121; color: #ffffff; box-shadow: 0 2px 4px #1a1a1a17; }
 nav button:not(.active):hover { background: #dedede; }
+nav button:disabled { opacity:.42; background:transparent; }
 .setup-label { display: flex; align-items: center; gap: 8px; font-size: 9px; letter-spacing: 1.1px; font-weight: 600; color: #727272; }
 .status-dot { height: 5px; width: 5px; border-radius: 50%; background: #919191; }
 .setup-separator { color: #737373; }
