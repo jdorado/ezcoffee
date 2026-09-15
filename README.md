@@ -1,6 +1,6 @@
-# Coffee Logbook
+# ezcoffee
 
-A small, self-hosted espresso journal for tracking coffees, recipes, tasting
+A small, self-hosted coffee journal for tracking coffees, recipes, tasting
 notes, and dial-in experiments. The default open-source profile is a private
 single-user app on your own machine: no signup, billing, analytics, or AI.
 
@@ -11,6 +11,14 @@ single-user app on your own machine: no signup, billing, analytics, or AI.
 - Keep actual results separate from planned next tests.
 - Track recipe inputs, output, timing, taste, ratings, and roast windows.
 - Reject stale edits with revision checks.
+- Adapt the brew form from the Profile tab: choose a Lelit Mara X, generic
+  espresso, standard pour-over, or custom setup, then show, hide, and order the
+  fields you care about.
+
+The standard pour-over preset covers water temperature and quantity, optional
+ice, coffee dose and computed ratio, grind size, total and bloom time, coffee
+brand, taste, and rating. The profile is stored in MongoDB with revision checks;
+it is not tied to one developer's machine.
 
 ## Quick start
 
@@ -85,4 +93,4 @@ release boundaries are in [PUBLICATION_SCOPE.md](PUBLICATION_SCOPE.md).
 
 ## License
 
-Coffee Logbook is available under the [MIT License](LICENSE).
+ezcoffee is available under the [MIT License](LICENSE).

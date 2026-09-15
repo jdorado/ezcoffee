@@ -13,7 +13,7 @@ function AuthenticatedApp(){
  const [connected,setConnected]=useState(false)
  useEffect(()=>{setAccessTokenProvider(getAccessToken);setConnected(true);return()=>setAccessTokenProvider(async()=>null)},[getAccessToken])
  if(!ready||!connected)return <LoadingLogbook/>
- if(!authenticated)return <div className="sign-in"><span className="brand-icon"><Icon name="cup"/></span><h1>Coffee logbook</h1><p>Your coffees. Your shots. Your daily ritual.</p><button className="primary" onClick={login}>Sign in</button></div>
+ if(!authenticated)return <div className="sign-in"><span className="brand-icon"><Icon name="cup"/></span><h1>ezcoffee</h1><p>Your coffees. Your brews. Your daily ritual.</p><button className="primary" onClick={login}>Sign in</button></div>
  return <App onLogout={logout}/>
 }
 const appId=process.env.PRIVY_APP_ID

@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, Field, model_validator
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -59,7 +60,7 @@ async def lifespan(app):
     if tasks: await asyncio.gather(*tasks,return_exceptions=True)
     client.close()
 
-app=FastAPI(title='Coffee Logbook',lifespan=lifespan)
+app=FastAPI(title='ezcoffee',lifespan=lifespan)
 @app.middleware('http')
 async def require_owner(request:Request, call_next):
     if REQUIRE_AUTH and request.method != 'OPTIONS' and request.url.path not in ['/health','/agent/context','/agent/save']:
@@ -78,6 +79,7 @@ app.add_middleware(CORSMiddleware,allow_origins=os.getenv('COFFEE_CORS_ORIGINS',
 
 class Coffee(BaseModel):
     name:str=Field(min_length=1,max_length=200)
+    brand:str=Field(default='',max_length=200)
     roast_date:str=''
     notes:str=Field(default='',max_length=10000)
     tag_color:Literal['','black','red','orange','green','blue','purple']=''
@@ -103,6 +105,10 @@ class Shot(BaseModel):
     outcome:Literal['unrated','good','adjust','bad','choked']='unrated'
     locked:bool=False
     seconds:float|None=Field(default=None,ge=0,le=600)
+    water_temp_c:float|None=Field(default=None,ge=0,le=100)
+    water_g:float|None=Field(default=None,ge=0,le=5000)
+    ice_g:float|None=Field(default=None,ge=0,le=5000)
+    bloom_seconds:float|None=Field(default=None,ge=0,le=600)
     first_drip:float|None=Field(default=None,ge=0,le=600)
     pressure:str=Field(default='',max_length=120)
     basket:str=Field(default='',max_length=120)
@@ -117,6 +123,31 @@ class Shot(BaseModel):
         if self.target_yield_max_g is not None and (self.target_yield_g is None or self.target_yield_max_g < self.target_yield_g):
             raise ValueError('Target upper bound must be at least the target grams.')
         return self
+
+TrackedField=Literal['water_temp_c','water_g','ice_g','dose','ratio','grind','seconds','bloom_seconds','brand','yield_g','stop_yield_g','target_yield_g','first_drip','paper','temp','pressure','basket','puck_screen','taste_balance','rating','taste']
+ESPRESSO_FIELDS=['dose','yield_g','seconds','grind','ratio','paper','water_temp_c','pressure','taste_balance','rating','taste']
+
+class BrewProfile(BaseModel):
+    brew_method:Literal['espresso','filter']='espresso'
+    equipment_preset:Literal['lelit_mara_x','generic_espresso','standard_pour_over','custom']='generic_espresso'
+    equipment_name:str=Field(default='',max_length=120)
+    tracked_fields:list[TrackedField]=Field(default_factory=lambda:list(ESPRESSO_FIELDS),min_length=1,max_length=21)
+    revision:int=0
+
+    @model_validator(mode='after')
+    def unique_fields(self):
+        if len(self.tracked_fields)!=len(set(self.tracked_fields)):
+            raise ValueError('Tracked fields must be unique.')
+        expected={'lelit_mara_x':'espresso','generic_espresso':'espresso','standard_pour_over':'filter'}
+        if self.equipment_preset in expected and self.brew_method!=expected[self.equipment_preset]:
+            raise ValueError('Brew method does not match the selected equipment preset.')
+        return self
+
+def default_profile(): return BrewProfile().model_dump()
+
+async def read_profile():
+    row=await db.profiles.find_one({'_id':'default'})
+    return clean(row) if row else default_profile()
 
 async def save(collection, key, data):
     payload=data.model_dump(exclude_unset=bool(data.revision)); revision=payload.pop('revision'); payload.update(id=key,revision=revision+1,updated_at=now())
@@ -139,7 +170,24 @@ async def state():
     shots.sort(key=shot_sort_key)
     messages=[clean(x) async for x in db.messages.find().sort('_id',1)] if AI_ENABLED else []
     active_job=await db.jobs.find_one({'status':{'$in':['queued','running']}},{'_id':0,'token':0}) if AI_ENABLED else None
-    return {'coffees':coffees, 'shots':shots, 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
+    return {'coffees':coffees, 'shots':shots, 'profile':await read_profile(), 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
+
+@app.get('/profile')
+async def get_profile(): return await read_profile()
+
+@app.put('/profile')
+async def put_profile(data:BrewProfile):
+    payload=data.model_dump(exclude={'revision'})
+    payload.update(revision=data.revision+1,updated_at=now())
+    if data.revision:
+        row=await db.profiles.find_one_and_update({'_id':'default','revision':data.revision},{'$set':payload},return_document=True)
+        if not row: raise HTTPException(409,'This profile changed. Reload it before saving again.')
+        return clean(row)
+    try:
+        await db.profiles.insert_one({'_id':'default',**payload})
+    except DuplicateKeyError:
+        raise HTTPException(409,'This profile changed. Reload it before saving again.')
+    return payload
 
 @app.delete('/coffees/{key}')
 async def delete_coffee(key:str,revision:int):

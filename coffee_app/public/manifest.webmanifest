@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Coffee Logbook",
-  "short_name": "Coffee",
+  "name": "ezcoffee",
+  "short_name": "ezcoffee",
   "description": "Your espresso journal",
   "start_url": "/",
   "scope": "/",

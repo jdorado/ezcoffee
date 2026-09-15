@@ -13,6 +13,6 @@ self.addEventListener('fetch', event => {
   if (event.request.mode !== 'navigate' || event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(fetch(event.request).catch(async () => {
     const cache = await caches.open(CACHE);
-    return await cache.match(OFFLINE) || new Response('Reconnect to open Coffee Logbook.', {status:503});
+    return await cache.match(OFFLINE) || new Response('Reconnect to open ezcoffee.', {status:503});
   }));
 });

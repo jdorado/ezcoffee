@@ -42,6 +42,12 @@ class CoffeeContract(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
   cls.context=TestClient(app);cls.http=cls.context.__enter__()
+  # Public repositories ship no personal seed data; contract fixtures are isolated here.
+  from pymongo import MongoClient
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  database.coffees.insert_many([{'id':f'coffee-{index}','name':f'Test coffee {index}','roast_date':'','notes':'','tag_color':'','archived':False,'revision':1} for index in range(1,7)])
+  database.shots.insert_many([{'id':f'import-{index}','coffee_id':'coffee-1','revision':1,'date':f'2026-09-0{index+2}','status':'planned','source':'test fixture'} for index in range(1,6)])
+  database.client.close()
  @classmethod
  def tearDownClass(cls):
   # Only this test's random database is removed.
@@ -90,6 +96,23 @@ class CoffeeContract(unittest.TestCase):
  def test_invalid_coffee_and_measurement(self):
   self.assertEqual(self.http.post('/shots',json={'coffee_id':'missing'}).status_code,404)
   self.assertEqual(self.http.post('/shots',json={'coffee_id':'coffee-1','dose':-1}).status_code,422)
+ def test_profile_and_pour_over_fields_are_revisioned(self):
+  default=self.http.get('/profile').json()
+  self.assertEqual(default['brew_method'],'espresso')
+  fields=['water_temp_c','water_g','ice_g','dose','ratio','grind','seconds','bloom_seconds','brand','taste']
+  saved=self.http.put('/profile',json={'brew_method':'filter','equipment_preset':'standard_pour_over','equipment_name':'V60','tracked_fields':fields,'revision':default['revision']})
+  self.assertEqual(saved.status_code,200)
+  current=saved.json()
+  self.assertEqual(self.http.get('/state').json()['profile']['tracked_fields'],fields)
+  self.assertEqual(self.http.put('/profile',json={**default,'equipment_name':'stale'}).status_code,409)
+  self.assertEqual(self.http.put('/profile',json={**current,'tracked_fields':['dose','dose']}).status_code,422)
+  coffee=self.http.post('/coffees',json={'name':'Pour-over test','brand':'Friend Roasters'}).json()
+  brew=self.http.post('/shots',json={'coffee_id':coffee['id'],'water_temp_c':93,'water_g':250,'ice_g':0,'dose':15,'grind':'medium-fine','seconds':180,'bloom_seconds':40}).json()
+  self.assertEqual(brew['water_g'],250)
+  self.assertEqual(brew['bloom_seconds'],40)
+  self.assertEqual(coffee['brand'],'Friend Roasters')
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':coffee['id'],'water_temp_c':101}).status_code,422)
+  self.assertEqual(self.http.put('/profile',json={**default,'revision':current['revision']}).status_code,200)
  def test_archived_coffee_keeps_history_for_chat_but_cannot_receive_shots(self):
   import json
   from src.main import chat_prompt
