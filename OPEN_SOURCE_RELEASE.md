@@ -21,9 +21,10 @@ Publication and hosted deployment were approved by the maintainer on
 - [x] Every hosted read and mutation is scoped by the verified Privy subject.
 - [x] Automated two-user isolation covers coffee, shot, and profile access.
 - [x] Hosted mode fails closed without authentication and rejects private AI.
-- [ ] `ezcoffee.space` serves the Vercel production build from `main`.
-- [ ] `api.ezcoffee.space` reaches only the loopback-bound VM API through TLS.
-- [ ] Privy permits the production origin and a new user can sign up and log out.
+- [x] `ezcoffee.space` serves the Vercel production build from `main`.
+- [x] `api.ezcoffee.space` reaches only the loopback-bound VM API through TLS.
+- [x] The production origin opens Privy's email and Google sign-up flow.
+- [ ] A maintainer-selected account can sign in and log out in production.
 - [ ] Signed-in create, edit, repeat, archive, restore, and delete pass in production.
 - [ ] A second production account cannot read or mutate the first account's data.
 
@@ -44,15 +45,15 @@ Publication and hosted deployment were approved by the maintainer on
       self-host runtime currently pass their focused audit.
 - [x] Start from a clean history that excludes the private repository's old
       infrastructure URLs and deployment paths.
-- [ ] Confirm the MIT license and public repository name.
+- [x] Confirm the MIT license and public repository name.
 - [x] Obtain explicit maintainer approval before pushing, creating a public
       repository, and deploying the hosted service.
 
 ## Evidence after approval
 
-- [ ] Read back public repository visibility, default branch, and license.
-- [ ] Confirm CI passes on the exact public commit.
-- [ ] Clone into a fresh directory and complete the README quick start.
+- [x] Read back public repository visibility, default branch, and license.
+- [x] Confirm CI passes on the exact public commit.
+- [x] Clone into a fresh directory and complete the README quick start.
 - [ ] Record the public commit SHA and release URL.
 
 ## Dependency review notes
