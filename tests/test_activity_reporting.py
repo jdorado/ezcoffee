@@ -9,11 +9,16 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "coffee_api"))
-from src import main
 
 
 class ActivityReportingTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def module():
+        from src import main
+        return main
+
     async def test_report_activity_sends_only_product_and_subject(self):
+        main = self.module()
         seen = {}
 
         async def handler(request):
@@ -42,6 +47,7 @@ class ActivityReportingTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_report_activity_is_best_effort(self):
+        main = self.module()
         async def handler(_):
             raise httpx.ConnectError("offline")
 
@@ -59,6 +65,7 @@ class ActivityReportingTests(unittest.IsolatedAsyncioTestCase):
             await main.report_activity("did:privy:user")
 
     async def test_selfhost_identity_is_not_reported(self):
+        main = self.module()
         with (
             patch.object(main, "ANALYTICS_URL", "http://analytics:8080"),
             patch.object(main, "ANALYTICS_TOKEN", "secret"),
