@@ -234,7 +234,9 @@ label { display: block; font-size: 10px; color: #737373; margin: 0 0 14px; }
 input, select, textarea { display: block; width: 100%; padding: 10px; border: 1px solid #d6d6d6; background: #ffffff; border-radius: 4px; margin-top: 6px; font-size: 16px; outline-color: #909090; }
 input:focus, textarea:focus, select:focus { outline: 2px solid #a5a5a5; outline-offset: 1px; }
 textarea { resize: vertical; }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 14px; }
+.form-grid>label { min-width:0; }
+.form-grid input,.form-grid select { min-width:0; }
 .quick-fields { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; }
 .output-fields { grid-template-columns:repeat(3,minmax(0,1fr)); }.base-fields { margin-top:9px; }
 .quick-fields input { padding: 9px 8px; min-width: 0; font-variant-numeric: tabular-nums; }
@@ -250,6 +252,9 @@ details { font-size: 11px; color: #737373; overflow-wrap: anywhere; }
 .more-settings { margin: 7px 0 12px; border-top: 1px solid var(--line); }
 .more-settings>summary { cursor: pointer; padding: 12px 0 3px; }
 .more-settings[open]>.form-grid { margin-top: 14px; }
+.more-settings>.form-grid input,.more-settings>.form-grid select { height:44px; }
+.more-settings input[type=date] { text-align:left; }
+.more-settings input[type=date]::-webkit-date-and-time-value { text-align:left; }
 .error { background: #e4e4e4; color: #3b3b3b; padding: 12px 18px; font-size: 12px; display: flex; justify-content: space-between; gap: 8px; }
 .error button { padding: 0 5px; }
 @media (max-width: 700px) {
