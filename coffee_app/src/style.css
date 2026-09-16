@@ -152,6 +152,11 @@ h1 > span { color: var(--accent); }
 .shot-date { color: #737373; }
 .unknown-date { color: #737373; }
 .record-badge,.shot-feedback { font-size:8px; color:#7d7d7d; letter-spacing:.2px; }
+.shot-rating { color:#8d681c; font-weight:600; }
+.shot-rating b { color:#c39228; font-size:10px; }
+.shot-feedback.balance-balanced { color:#52715d; }
+.shot-feedback.balance-sour,.shot-feedback.balance-slightly_sour { color:#9a7325; }
+.shot-feedback.balance-bitter,.shot-feedback.balance-slightly_bitter { color:#8a5f4f; }
 .lock-shot { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #cacaca; border-radius: 3px; padding: 3px 6px; color: #666; font-size: 8px; line-height: 1; }
 .lock-shot svg { width: 10px; height: 10px; }
 .lock-shot:hover { border-color: #777; color: #222; }
@@ -390,9 +395,9 @@ button:active:not(:disabled) { opacity: .65; }
 }
 
 /* Outcome is a quiet dot plus a label, never color alone. */
-.shot-outcome { display:inline-flex; align-items:center; white-space:nowrap; padding:5px 7px; border-radius:2px; background:#242424; color:#fff; font:8px/1.2 'SFMono-Regular',Consolas,monospace; letter-spacing:.2px; }
-.shot-outcome.adjust { background:#686863; }
-.shot-outcome.bad,.shot-outcome.choked { background:#8b8b86; }
+.shot-outcome { display:inline-flex; align-items:center; white-space:nowrap; padding:5px 7px; border-radius:2px; background:#4f6f5a; color:#fff; font:8px/1.2 'SFMono-Regular',Consolas,monospace; letter-spacing:.2px; }
+.shot-outcome.adjust { background:#9a7427; }
+.shot-outcome.bad,.shot-outcome.choked { background:#925849; }
 .shot-top { flex-wrap: wrap; }
 .outcome-picker { border: 0; padding: 0; margin: 0 0 15px; display: flex; flex-wrap: wrap; gap: 5px; }
 .outcome-picker legend { font-size: 10px; color: #737373; padding: 0; margin-bottom: 7px; }
