@@ -24,11 +24,31 @@ REQUIRE_AUTH = os.getenv('COFFEE_REQUIRE_AUTH', 'true' if APP_MODE in {'hosted',
 AI_ENABLED = os.getenv('COFFEE_AI_ENABLED', 'false').lower() == 'true'
 AI_BACKEND = os.getenv('COFFEE_AI_BACKEND', 'codex' if APP_MODE == 'personal' else 'openrouter').strip().lower()
 OWNER_SUB = os.getenv('COFFEE_OWNER_SUB', '')
+ANALYTICS_URL = os.getenv('ANALYTICS_URL', '').rstrip('/')
+ANALYTICS_TOKEN = os.getenv('ANALYTICS_TOKEN', '')
 SELFHOST_ACCOUNT = 'selfhost'
 client = AsyncIOMotorClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'), serverSelectionTimeoutMS=3000)
 db = client[os.getenv('MONGO_DB','ezcoffee')]
 tasks = set()
 def now(): return datetime.now(timezone.utc).isoformat()
+async def report_activity(account_id):
+    if not ANALYTICS_URL or not ANALYTICS_TOKEN or account_id == SELFHOST_ACCOUNT: return
+    try:
+        async with httpx.AsyncClient(timeout=3) as analytics_client:
+            await analytics_client.post(
+                f'{ANALYTICS_URL}/v1/activity',
+                headers={'Authorization':f'Bearer {ANALYTICS_TOKEN}'},
+                json={'product':'ezcoffee','subject':account_id},
+            )
+    except (httpx.HTTPError, RuntimeError):
+        # Analytics is optional and must never affect the coffee experience.
+        return
+
+def schedule_activity(account_id):
+    task=asyncio.create_task(report_activity(account_id))
+    tasks.add(task)
+    task.add_done_callback(tasks.discard)
+
 def clean(row): return {k:v for k,v in row.items() if k not in ('_id','token','account_id')}
 def shot_sort_key(row):
     value=row.get('date','')
@@ -199,7 +219,10 @@ async def state_for(account_id):
     return {'coffees':coffees, 'shots':shots, 'profile':await read_profile(account_id), 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
 
 @app.get('/state')
-async def state(request:Request): return await state_for(request.state.account_id)
+async def state(request:Request):
+    result=await state_for(request.state.account_id)
+    schedule_activity(request.state.account_id)
+    return result
 
 @app.get('/profile')
 async def get_profile(request:Request): return await read_profile(request.state.account_id)
