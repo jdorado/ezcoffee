@@ -11,7 +11,7 @@ services:
       APP_MODE: hosted
       COFFEE_AI_BACKEND: openrouter
       COFFEE_REQUIRE_AUTH: "true"
-      COFFEE_CORS_ORIGINS: https://ezcoffee.space,https://www.ezcoffee.space
+      COFFEE_CORS_ORIGINS: https://ezcoffee.space,https://www.ezcoffee.space,http://127.0.0.1:5176,http://localhost:5176
     ports:
       - "127.0.0.1:${EZCOFFEE_API_PORT:-18085}:8080"
     restart: unless-stopped
