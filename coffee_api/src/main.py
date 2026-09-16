@@ -31,21 +31,28 @@ client = AsyncIOMotorClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'), 
 db = client[os.getenv('MONGO_DB','ezcoffee')]
 tasks = set()
 def now(): return datetime.now(timezone.utc).isoformat()
-async def report_activity(account_id):
+async def report_activity(account_id, email=None, name=None, event='app_open'):
     if not ANALYTICS_URL or not ANALYTICS_TOKEN or account_id == SELFHOST_ACCOUNT: return
     try:
         async with httpx.AsyncClient(timeout=3) as analytics_client:
             await analytics_client.post(
                 f'{ANALYTICS_URL}/v1/activity',
                 headers={'Authorization':f'Bearer {ANALYTICS_TOKEN}'},
-                json={'product':'ezcoffee','subject':account_id},
+                json={'product':'ezcoffee','subject':account_id,'event':event,'email':email,'name':name},
             )
     except (httpx.HTTPError, RuntimeError):
         # Analytics is optional and must never affect the coffee experience.
         return
 
-def schedule_activity(account_id):
-    task=asyncio.create_task(report_activity(account_id))
+def schedule_activity(actor):
+    created_at=getattr(actor,'created_at',None)
+    is_signup=isinstance(created_at,int) and 0 <= datetime.now(timezone.utc).timestamp()-created_at <= 900
+    task=asyncio.create_task(report_activity(
+        actor.user_id,
+        getattr(actor,'email',None),
+        getattr(actor,'name',None),
+        'signup' if is_signup else 'app_open',
+    ))
     tasks.add(task)
     task.add_done_callback(tasks.discard)
 
@@ -114,6 +121,7 @@ async def require_owner(request:Request, call_next):
         if APP_MODE == 'personal' and actor.user_id != OWNER_SUB:
             return JSONResponse({'detail':'This coffee logbook belongs to a different account.'},status_code=403)
         request.state.account_id=actor.user_id
+        request.state.actor=actor
     elif not public:
         request.state.account_id=SELFHOST_ACCOUNT
     return await call_next(request)
@@ -221,7 +229,7 @@ async def state_for(account_id):
 @app.get('/state')
 async def state(request:Request):
     result=await state_for(request.state.account_id)
-    schedule_activity(request.state.account_id)
+    if REQUIRE_AUTH: schedule_activity(request.state.actor)
     return result
 
 @app.get('/profile')

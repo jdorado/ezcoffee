@@ -17,7 +17,7 @@ VERIFICATION_KEY_TTL_SEC = int(os.getenv("PRIVY_VERIFICATION_KEY_TTL_SEC", "3600
 USER_EMAIL_TTL_SEC = int(os.getenv("PRIVY_USER_EMAIL_TTL_SEC", "900"))
 
 _verification_key_cache: dict[str, Any] = {"key": None, "expires_at": 0.0}
-_user_email_cache: dict[str, tuple[str | None, float]] = {}
+_user_profile_cache: dict[str, tuple["PrivyUserProfile", float]] = {}
 
 
 class PrivyAuthError(Exception):
@@ -32,7 +32,16 @@ class PrivyConfigError(Exception):
 class PrivyAuthContext:
     user_id: str
     email: str | None
+    name: str | None
+    created_at: int | None
     session_id: str | None
+
+
+@dataclass(frozen=True)
+class PrivyUserProfile:
+    email: str | None
+    name: str | None
+    created_at: int | None
 
 
 def _require_privy_config() -> None:
@@ -93,12 +102,25 @@ def _email_from_linked_accounts(payload: dict[str, Any]) -> str | None:
     return None
 
 
-async def get_privy_user_email(user_id: str) -> str | None:
-    """Read Privy's verified linked email, with a cache for its rate-limited API."""
-    if not user_id:
+def _name_from_linked_accounts(payload: dict[str, Any]) -> str | None:
+    accounts = payload.get("linked_accounts")
+    if not isinstance(accounts, list):
         return None
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        value = account.get("name")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+async def get_privy_user_profile(user_id: str) -> PrivyUserProfile:
+    """Read the verified Privy profile, cached to respect the provider API."""
+    if not user_id:
+        return PrivyUserProfile(None, None, None)
     now = time.time()
-    cached = _user_email_cache.get(user_id)
+    cached = _user_profile_cache.get(user_id)
     if cached and cached[1] > now:
         return cached[0]
 
@@ -114,11 +136,18 @@ async def get_privy_user_email(user_id: str) -> str | None:
             payload = response.json()
     except httpx.HTTPError:
         # A valid access token remains sufficient if this auxiliary lookup fails.
-        return None
+        return PrivyUserProfile(None, None, None)
 
-    email = _email_from_linked_accounts(payload) if isinstance(payload, dict) else None
-    _user_email_cache[user_id] = (email, now + USER_EMAIL_TTL_SEC)
-    return email
+    if not isinstance(payload, dict):
+        return PrivyUserProfile(None, None, None)
+    created_at = payload.get("created_at")
+    profile = PrivyUserProfile(
+        email=_email_from_linked_accounts(payload),
+        name=_name_from_linked_accounts(payload),
+        created_at=created_at if isinstance(created_at, int) else None,
+    )
+    _user_profile_cache[user_id] = (profile, now + USER_EMAIL_TTL_SEC)
+    return profile
 
 
 async def verify_privy_access_token(token: str) -> PrivyAuthContext:
@@ -146,6 +175,11 @@ async def verify_privy_access_token(token: str) -> PrivyAuthContext:
     session_id = payload.get("sid") if isinstance(payload.get("sid"), str) else None
     email_claim = payload.get("email") or payload.get("email_address")
     email = email_claim.strip().lower() if isinstance(email_claim, str) and "@" in email_claim else None
-    if not email:
-        email = await get_privy_user_email(user_id)
-    return PrivyAuthContext(user_id=user_id, email=email, session_id=session_id)
+    profile = await get_privy_user_profile(user_id)
+    return PrivyAuthContext(
+        user_id=user_id,
+        email=email or profile.email,
+        name=profile.name,
+        created_at=profile.created_at,
+        session_id=session_id,
+    )
