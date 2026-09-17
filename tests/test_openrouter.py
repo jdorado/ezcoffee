@@ -80,6 +80,10 @@ class OpenRouterContract(unittest.TestCase):
             with self.assertRaises(OpenRouterConfigError):
                 OpenRouterSettings.from_env()
 
+    def test_hosted_model_is_pinned_even_if_runtime_env_is_stale(self):
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test", "OPENROUTER_MODEL": "old/model"}, clear=False):
+            self.assertEqual(OpenRouterSettings.from_env().model, "z-ai/glm-5.3-flash")
+
 
 if __name__ == "__main__":
     unittest.main()

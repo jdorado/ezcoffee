@@ -64,9 +64,7 @@ class OpenRouterSettings:
         api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not api_key:
             raise OpenRouterConfigError("OPENROUTER_API_KEY is required when hosted chat is enabled.")
-        model = os.getenv("OPENROUTER_MODEL", "z-ai/glm-5.3-flash").strip()
-        if not model:
-            raise OpenRouterConfigError("OPENROUTER_MODEL cannot be empty when hosted chat is enabled.")
+        model = "z-ai/glm-5.3-flash"
         try:
             max_output_tokens = int(os.getenv("OPENROUTER_MAX_OUTPUT_TOKENS", "1200"))
             timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "30"))
