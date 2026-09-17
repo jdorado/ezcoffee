@@ -32,6 +32,8 @@ class CoffeeContract(unittest.TestCase):
   self.assertNotIn(plan['id'],[s['id'] for s in recent])
   self.assertEqual(payload['current_records']['planned_next_shot']['id'],plan['id'])
   self.assertEqual(payload['current_records']['planned_next_shot']['status'],'planned')
+  self.assertIn('always update that same planned record',payload['record_guidance'])
+  self.assertIn('even when the owner asked only for advice',payload['record_guidance'])
   self.http.delete('/coffees/'+coffee['id']+'?revision=1')
  def test_timestamp_and_taste_survive_edits(self):
   c=self.http.post('/coffees',json={'name':'Timestamp test'}).json()
@@ -189,17 +191,27 @@ class CoffeeContract(unittest.TestCase):
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
   job={'account_id':'test-owner','id':'openrouter-contract','message':'What should I change next?','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'queued','created_at':'2026-09-15T00:00:00+00:00','receipts':[]}
   database.jobs.insert_one(job)
-  database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','role':'user','text':job['message']})
+  database.messages.insert_many([
+   {'account_id':'test-owner','id':'same-coffee-user','coffee_id':'coffee-1','role':'user','text':'Earlier note for this coffee.'},
+   {'account_id':'test-owner','id':'other-coffee-user','coffee_id':'coffee-2','role':'user','text':'Do not leak this other coffee.'},
+   {'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-1','role':'user','text':job['message']},
+  ])
   reply=AsyncMock(return_value=OpenRouterReply(text='Try one small grind adjustment.',actions=[]))
   with patch('src.main.AI_BACKEND','openrouter'),patch('src.main.openrouter_reply',reply):
    self.http.portal.call(run_chat,job)
   prompt,history=reply.await_args.args
   context=json.loads(prompt)
   self.assertEqual(context['current_records']['selected_coffee']['id'],'coffee-1')
+  self.assertIn('coffee_overview',context['current_records'])
+  self.assertIn('equipment_context',context['current_records'])
+  self.assertIn('tracked_fields',context['current_records']['equipment_context'])
+  self.assertIn('defaults',context['current_records']['equipment_context'])
+  self.assertEqual(context['current_records']['scope'],'selected coffee plus bounded all-coffee overview')
   self.assertNotIn('account_id',prompt)
-  self.assertLessEqual(len(history),2)
+  self.assertEqual([message['text'] for message in history],['Earlier note for this coffee.'])
   saved=database.messages.find_one({'account_id':'test-owner','id':job['id']+'-assistant'})
   self.assertEqual(saved['text'],'Try one small grind adjustment.')
+  self.assertEqual(saved['coffee_id'],'coffee-1')
   self.assertEqual(database.jobs.find_one({'account_id':'test-owner','id':job['id']})['status'],'complete')
   database.client.close()
  def test_fast_next_shot_uses_ten_logged_shots_and_replaces_the_plan(self):

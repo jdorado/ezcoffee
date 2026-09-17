@@ -202,7 +202,8 @@ sudo install -m 600 profiles/production.env.example /etc/ezcoffee/production.env
 docker compose --env-file /etc/ezcoffee/production.env -f compose.yml up -d --build --wait
 ```
 
-Hosted chat uses `~deepseek/deepseek-v4-flash-latest`. Operators keep
+Hosted chat uses `z-ai/glm-5.3-flash`, pinned to the `baseten/fp8` provider with
+fallbacks disabled. Operators keep
 `OPENROUTER_API_KEY` in the protected API runtime environment. The browser
 never receives it. See
 [profiles/hosted.env.example](profiles/hosted.env.example) for placeholders and
