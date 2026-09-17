@@ -235,6 +235,27 @@ async def state_for(account_id):
     for message in messages:
         if 'coffee_id' not in message:
             message['coffee_id']=legacy_jobs.get(re.sub(r'-(?:user|assistant)$','',message['id']))
+    if messages:
+        message_ids={message['id'] for message in messages}
+        unanswered_job_ids={
+            re.sub(r'-user$','',message['id']) for message in messages
+            if message.get('role')=='user' and re.sub(r'-user$','',message['id'])+'-assistant' not in message_ids
+        }
+        failed_jobs={row['id']:clean(row) async for row in db.jobs.find({
+            'account_id':account_id,'id':{'$in':list(unanswered_job_ids)},'status':'failed'
+        })} if unanswered_job_ids else {}
+        if failed_jobs:
+            visible_messages=[]
+            for message in messages:
+                visible_messages.append(message)
+                job_id=re.sub(r'-user$','',message['id'])
+                failed=failed_jobs.get(job_id) if message.get('role')=='user' else None
+                if failed:
+                    visible_messages.append({
+                        'id':job_id+'-assistant-failed','coffee_id':message.get('coffee_id') or failed.get('coffee_id'),
+                        'role':'assistant','text':'I couldn\'t reply to that message because the coffee chat service was temporarily unavailable. Please send it again to retry.'
+                    })
+            messages=visible_messages
     active_job=await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}},{'_id':0,'token':0,'account_id':0}) if AI_ENABLED else None
     return {'coffees':coffees, 'shots':shots, 'profile':await read_profile(account_id), 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'next_shot':TYPESAFE_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
 

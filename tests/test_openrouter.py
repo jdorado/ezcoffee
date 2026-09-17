@@ -50,7 +50,7 @@ class OpenRouterContract(unittest.TestCase):
         ]
         payload = build_payload('{"request":"help"}', history, self.settings())
         self.assertEqual(payload["model"], "provider/small-model")
-        self.assertEqual(payload["provider"], {"only": ["baseten/fp8"], "allow_fallbacks": False})
+        self.assertNotIn("provider", payload)
         self.assertTrue(payload["response_format"]["json_schema"]["strict"])
         self.assertEqual(len(payload["messages"]), 4)
         self.assertEqual(payload["messages"][1]["content"], "message 8")

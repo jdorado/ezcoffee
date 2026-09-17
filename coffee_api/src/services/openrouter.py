@@ -104,7 +104,6 @@ def build_payload(prompt: str, history: list[dict[str, str]], settings: OpenRout
         "messages": build_messages(prompt, history),
         "max_tokens": settings.max_output_tokens,
         "temperature": 0.2,
-        "provider": {"only": ["baseten/fp8"], "allow_fallbacks": False},
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": "ezcoffee_reply", "strict": True, "schema": ASSISTANT_RESPONSE_SCHEMA},
