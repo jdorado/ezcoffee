@@ -1,4 +1,5 @@
 import asyncio, os, sys, unittest, uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 os.environ['APP_MODE']='personal'
 os.environ['COFFEE_AI_ENABLED']='true'
@@ -29,6 +30,8 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(payload['current_records']['selected_coffee']['name'],'Chat snapshot test')
   self.assertIn('profile',payload['current_records'])
   self.assertNotIn(plan['id'],[s['id'] for s in recent])
+  self.assertEqual(payload['current_records']['planned_next_shot']['id'],plan['id'])
+  self.assertEqual(payload['current_records']['planned_next_shot']['status'],'planned')
   self.http.delete('/coffees/'+coffee['id']+'?revision=1')
  def test_timestamp_and_taste_survive_edits(self):
   c=self.http.post('/coffees',json={'name':'Timestamp test'}).json()
@@ -199,6 +202,48 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(saved['text'],'Try one small grind adjustment.')
   self.assertEqual(database.jobs.find_one({'account_id':'test-owner','id':job['id']})['status'],'complete')
   database.client.close()
+ def test_fast_next_shot_uses_ten_logged_shots_and_replaces_the_plan(self):
+  from unittest.mock import AsyncMock, patch
+  roast_date=(datetime.now(timezone.utc).date()-timedelta(days=7)).isoformat()
+  coffee=self.http.post('/coffees',json={'name':'Triage test','roast_date':roast_date}).json()
+  for index in range(12):
+   self.http.post('/shots',json={'coffee_id':coffee['id'],'date':f'2026-08-{index+1:02}','dose':18,'grind':'5.0','stop_yield_g':35,'yield_g':36,'water_temp_c':93,'temp':'I','taste':'sour','taste_balance':'sour','outcome':'adjust'})
+  choice=AsyncMock(return_value=('finer',.84,'jev-test'))
+  with patch('src.main.TYPESAFE_ENABLED',True),patch('src.main.typesafe_choice',choice):
+   response=self.http.post('/recommendations/next-shot',json={'coffee_id':coffee['id'],'guidance':'Make it sweeter today.','paper':'no'})
+  self.assertEqual(response.status_code,200)
+  result=response.json()
+  self.assertEqual(result['shots_considered'],10)
+  self.assertEqual(result['plan']['grind'],'4.9')
+  self.assertEqual(result['plan']['target_yield_g'],35)
+  self.assertEqual(result['plan']['target_yield_max_g'],36)
+  self.assertEqual(result['plan']['status'],'planned')
+  self.assertEqual(result['plan']['paper'],'no')
+  self.assertEqual(result['plan']['temp'],'I')
+  self.assertIsNone(result['plan']['yield_g'])
+  self.assertEqual(len(choice.await_args.args[0]['shots']),10)
+  self.assertEqual(choice.await_args.args[0]['owner_guidance'],'Make it sweeter today.')
+  self.assertEqual(choice.await_args.args[0]['coffee']['roast_age_days'],7)
+  self.assertEqual(choice.await_args.args[0]['coffee']['days_left_in_28_day_window'],21)
+  self.assertEqual(choice.await_args.args[0]['recipe_constraints'],{'paper':'no'})
+  self.assertTrue(all(candidate['plan']['paper']=='no' for candidate in choice.await_args.args[1].values()))
+  self.assertEqual(choice.await_args.args[1]['pid_0']['plan']['temp'],'0')
+  self.assertEqual(choice.await_args.args[1]['pid_II']['plan']['temp'],'II')
+  state=self.http.get('/state').json()
+  plans=[s for s in state['shots'] if s['coffee_id']==coffee['id'] and s['status']=='planned']
+  self.assertEqual(len(plans),1)
+  first_id=plans[0]['id']
+  with patch('src.main.TYPESAFE_ENABLED',True),patch('src.main.typesafe_choice',choice):
+   replaced=self.http.post('/recommendations/next-shot',json={'coffee_id':coffee['id']}).json()['plan']
+  self.assertEqual(replaced['id'],first_id)
+  self.assertEqual(replaced['revision'],2)
+  self.assertEqual(len([s for s in self.http.get('/state').json()['shots'] if s['coffee_id']==coffee['id'] and s['status']=='planned']),1)
+  profile_without_paper=AsyncMock(return_value={'tracked_fields':['dose','grind','temp']})
+  choice.reset_mock()
+  with patch('src.main.TYPESAFE_ENABLED',True),patch('src.main.typesafe_choice',choice),patch('src.main.read_profile',profile_without_paper):
+   self.http.post('/recommendations/next-shot',json={'coffee_id':coffee['id'],'paper':'yes'})
+  self.assertEqual(choice.await_args.args[0]['recipe_constraints'],{})
+  self.assertTrue(all(candidate['plan']['paper']=='unknown' for candidate in choice.await_args.args[1].values()))
  def test_openrouter_actions_use_canonical_account_scoped_writes(self):
   from fastapi import HTTPException
   from pymongo import MongoClient
@@ -253,7 +298,7 @@ class CoffeeContract(unittest.TestCase):
    state=self.http.get('/state').json()
    self.assertEqual(state['messages'],[])
    self.assertIsNone(state['active_job'])
-   self.assertEqual(state['capabilities'],{'chat':False,'auth':False,'app_mode':'personal'})
+   self.assertEqual(state['capabilities'],{'chat':False,'next_shot':False,'auth':False,'app_mode':'personal'})
    self.assertEqual(self.http.post('/chat',json={'id':'disabled','message':'test'}).status_code,404)
    self.assertEqual(self.http.get('/agent/context',headers={'X-Coffee-Token':'bad'}).status_code,404)
  def test_delete_revision_and_coffee_history(self):

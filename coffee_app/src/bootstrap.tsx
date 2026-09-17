@@ -11,7 +11,7 @@ function AuthenticatedApp(){
  const {ready,authenticated,login,logout,getAccessToken}=usePrivy()
  const [connected,setConnected]=useState(false)
  useEffect(()=>{setAccessTokenProvider(getAccessToken);setConnected(true);return()=>setAccessTokenProvider(async()=>null)},[getAccessToken])
- if(!ready||!connected)return <LoadingLogbook/>
+ if(!ready||!connected)return <main className="initial-loading-view"><LoadingLogbook/></main>
  if(!authenticated)return <main className="landing">
   <header className="landing-header">
    <img className="landing-logo" src="/ezcoffee-logo-header.png" alt="ezcoffee"/>
