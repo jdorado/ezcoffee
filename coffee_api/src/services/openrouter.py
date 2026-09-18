@@ -104,6 +104,9 @@ def build_payload(prompt: str, history: list[dict[str, str]], settings: OpenRout
         "messages": build_messages(prompt, history),
         "max_tokens": settings.max_output_tokens,
         "temperature": 0.2,
+        # GLM is a reasoning model. Without an explicit effort it can spend the
+        # entire completion budget thinking and return no user-visible content.
+        "reasoning": {"effort": "low"},
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": "ezcoffee_reply", "strict": True, "schema": ASSISTANT_RESPONSE_SCHEMA},
