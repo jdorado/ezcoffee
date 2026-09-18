@@ -1,4 +1,4 @@
-import asyncio, json, os, re, secrets, uuid
+import asyncio, json, logging, os, re, secrets, uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +32,8 @@ SELFHOST_ACCOUNT = 'selfhost'
 client = AsyncIOMotorClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'), serverSelectionTimeoutMS=3000)
 db = client[os.getenv('MONGO_DB','ezcoffee')]
 tasks = set()
+logger = logging.getLogger(__name__)
+CHAT_ACTION_REJECTED = 'Coffee chat could not safely apply that change. Your existing records are safe. Please send it again to retry.'
 def now(): return datetime.now(timezone.utc).isoformat()
 async def report_activity(account_id, email=None, name=None, event='app_open'):
     if not ANALYTICS_URL or not ANALYTICS_TOKEN or account_id == SELFHOST_ACCOUNT: return
@@ -251,9 +253,14 @@ async def state_for(account_id):
                 job_id=re.sub(r'-user$','',message['id'])
                 failed=failed_jobs.get(job_id) if message.get('role')=='user' else None
                 if failed:
+                    text=(
+                        'I couldn\'t safely apply that change, so your saved coffees and shots were left unchanged. Please send it again to retry.'
+                        if failed.get('error') == CHAT_ACTION_REJECTED
+                        else 'I couldn\'t reply to that message because the coffee chat service was temporarily unavailable. Please send it again to retry.'
+                    )
                     visible_messages.append({
                         'id':job_id+'-assistant-failed','coffee_id':message.get('coffee_id') or failed.get('coffee_id'),
-                        'role':'assistant','text':'I couldn\'t reply to that message because the coffee chat service was temporarily unavailable. Please send it again to retry.'
+                        'role':'assistant','text':text
                     })
             messages=visible_messages
     active_job=await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}},{'_id':0,'token':0,'account_id':0}) if AI_ENABLED else None
@@ -484,8 +491,13 @@ async def run_chat(job):
                 ]}
             ).sort('_id',-1).limit(2)]
             result=await openrouter_reply(prompt,list(reversed(history)))
-            for action in result.actions:
-                await apply_inference_action(job,action)
+            try:
+                for action in result.actions:
+                    await apply_inference_action(job,action)
+            except Exception as exc:
+                logger.warning('Rejected OpenRouter action for chat job %s (%s)',job['id'],type(exc).__name__)
+                await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'failed','error':CHAT_ACTION_REJECTED}})
+                return
             reply=result.text
         else:
             session_key=f'{account_id}:chat:{job.get("coffee_id") or "all"}'

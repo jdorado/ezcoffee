@@ -214,6 +214,26 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(saved['coffee_id'],'coffee-1')
   self.assertEqual(database.jobs.find_one({'account_id':'test-owner','id':job['id']})['status'],'complete')
   database.client.close()
+ def test_rejected_openrouter_action_preserves_records_and_reports_the_right_retry(self):
+  from pymongo import MongoClient
+  from unittest.mock import AsyncMock, patch
+  from src.main import CHAT_ACTION_REJECTED, run_chat, state_for
+  from src.services.openrouter import OpenRouterReply
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  job={'account_id':'test-owner','id':'rejected-openrouter-action','message':'Save this change.','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'queued','created_at':'2026-09-15T00:00:00+00:00','receipts':[]}
+  database.jobs.insert_one(job)
+  database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-1','role':'user','text':job['message']})
+  reply=AsyncMock(return_value=OpenRouterReply(text='Saved.',actions=[{'kind':'shot','id':None,'data':{'coffee_id':'missing-coffee'}}]))
+  with patch('src.main.AI_BACKEND','openrouter'),patch('src.main.openrouter_reply',reply):
+   self.http.portal.call(run_chat,job)
+  failed=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
+  self.assertEqual(failed['status'],'failed')
+  self.assertEqual(failed['error'],CHAT_ACTION_REJECTED)
+  self.assertEqual(failed['receipts'],[])
+  state=self.http.portal.call(state_for,'test-owner')
+  message=next(row for row in state['messages'] if row['id']==job['id']+'-assistant-failed')
+  self.assertIn('saved coffees and shots were left unchanged',message['text'])
+  database.client.close()
  def test_fast_next_shot_uses_ten_logged_shots_and_replaces_the_plan(self):
   from unittest.mock import AsyncMock, patch
   roast_date=(datetime.now(timezone.utc).date()-timedelta(days=7)).isoformat()
@@ -306,7 +326,7 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(self.http.post('/agent/save',headers={'X-Coffee-Token':'bad'},json={'kind':'coffee','data':{'name':'blocked'}}).status_code,403)
  def test_selfhost_profile_exposes_shots_without_chat(self):
   from unittest.mock import patch
-  with patch('src.main.AI_ENABLED',False),patch('src.main.REQUIRE_AUTH',False):
+  with patch('src.main.AI_ENABLED',False),patch('src.main.TYPESAFE_ENABLED',False),patch('src.main.REQUIRE_AUTH',False):
    state=self.http.get('/state').json()
    self.assertEqual(state['messages'],[])
    self.assertIsNone(state['active_job'])
