@@ -343,7 +343,11 @@ def next_shot_candidates(latest,constraints=None):
     target=latest.get('target_yield_g') or latest.get('stop_yield_g') or latest.get('yield_g')
     target_max=latest.get('target_yield_max_g')
     if target_max is None and latest.get('stop_yield_g') is not None and latest.get('yield_g') is not None and latest['yield_g']>latest['stop_yield_g']:
-        target_max=latest['yield_g']
+        measured_max=latest['yield_g']
+        if target is None or measured_max>=target:
+            target_max=measured_max
+    if target is not None and target_max is not None and target_max<target:
+        target_max=None
     if target is not None:
         copied['target_yield_g']=target
         copied['target_yield_max_g']=target_max

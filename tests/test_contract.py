@@ -276,6 +276,12 @@ class CoffeeContract(unittest.TestCase):
    self.http.post('/recommendations/next-shot',json={'coffee_id':coffee['id'],'paper':'yes'})
   self.assertEqual(choice.await_args.args[0]['recipe_constraints'],{})
   self.assertTrue(all(candidate['plan']['paper']=='unknown' for candidate in choice.await_args.args[1].values()))
+ def test_next_shot_candidates_do_not_invert_target_range_from_a_short_measured_yield(self):
+  from src.main import next_shot_candidates
+  candidates=next_shot_candidates({'coffee_id':'coffee-1','target_yield_g':31,'stop_yield_g':29,'yield_g':30.6,'grind':'8.0'})
+  for candidate in candidates.values():
+   plan=candidate['plan']
+   self.assertTrue(plan['target_yield_max_g'] is None or plan['target_yield_max_g']>=plan['target_yield_g'])
  def test_openrouter_actions_use_canonical_account_scoped_writes(self):
   from fastapi import HTTPException
   from pymongo import MongoClient
