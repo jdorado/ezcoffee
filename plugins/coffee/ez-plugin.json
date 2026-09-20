@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "coffee",
+  "version": "0.1.0",
+  "description": "Narrow EzCoffee writes: save coffee, save shot, delete record.",
+  "commands": {
+    "coffee": {
+      "executable": "bin/coffee.mjs",
+      "args": [],
+      "exposure": {
+        "receivesExternalContent": true,
+        "sendsExternally": true,
+        "changesRecords": true,
+        "requiresReview": false
+      }
+    }
+  },
+  "skills": [
+    "SKILL.md"
+  ]
+}

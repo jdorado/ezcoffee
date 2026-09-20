@@ -1,4 +1,13 @@
-# Coffee Logbook contributor notes
+# [REPO CODE] EzCoffee — application instructions
+
+Before non-trivial planning, implementation or review, read
+[principles.md](principles.md). Treat applicable principles as binding constraints.
+Add only durable guidance there; keep task notes elsewhere.
+
+For non-trivial work, state the objective, at most five binding constraints, the
+owning component, the simplest subtraction, minimum evidence, and stop condition.
+Review those constraints once before finishing; do not start open-ended critique
+loops when no material blocker remains.
 
 Keep the product small: React/TypeScript, FastAPI, and MongoDB, with two records
 only—coffees and shots. The public `selfhost` profile has no auth, billing, or AI.

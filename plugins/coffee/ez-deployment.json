@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "services": {
+    "coffee": {
+      "buildTarget": "runtime",
+      "healthcheck": ["node", "--version"],
+      "command": ["tail", "-f", "/dev/null"]
+    }
+  },
+  "commands": {
+    "coffee": {
+      "service": "coffee",
+      "argv": ["node", "/app/bin/coffee.mjs"],
+      "suffix": []
+    }
+  },
+  "exports": {}
+}

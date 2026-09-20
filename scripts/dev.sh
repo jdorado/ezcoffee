@@ -10,9 +10,7 @@ if [[ -z "${MONGO_URL:-}" ]]; then
  mongod --dbpath "$ROOT_DIR/data/mongo" --bind_ip 127.0.0.1 --port 27019 --logpath "$ROOT_DIR/data/mongo.log" &
  pids+=("$!")
 fi
-(cd coffee_api && .venv/bin/python -m uvicorn src.main:app --host 127.0.0.1 --port 8001) &
-pids+=("$!")
-node coffee_api/coffee_ai/server.mjs &
+(cd coffee_api && .venv/bin/python -m uvicorn src.main:app --host 0.0.0.0 --port 8001) &
 pids+=("$!")
 npm --prefix coffee_app run dev &
 pids+=("$!")

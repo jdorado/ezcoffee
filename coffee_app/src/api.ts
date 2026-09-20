@@ -1,7 +1,24 @@
 import {profile} from './profile'
 
 declare const process: {env: {API_BASE_URL?: string}}
-const base=process.env.API_BASE_URL||'http://127.0.0.1:8001'
+function defaultBase(){
+ const configured=process.env.API_BASE_URL
+ // Same-origin proxy (Docker web) always wins.
+ if(configured?.startsWith('/'))return configured
+ try{
+  const host=window.location.hostname
+  if(host&&host!=='localhost'&&host!=='127.0.0.1'){
+   // On phone/LAN/VPN a loopback API URL can never work: follow the page host.
+   if(!configured)return `http://${host}:8001`
+   try{
+    const url=new URL(configured)
+    if(url.hostname==='localhost'||url.hostname==='127.0.0.1')return `http://${host}:${url.port||'8001'}`
+   }catch{return `http://${host}:8001`}
+  }
+ }catch{}
+ return configured||'http://127.0.0.1:8001'
+}
+const base=defaultBase()
 let accessToken:()=>Promise<string|null>=async()=>null
 export function setAccessTokenProvider(provider:()=>Promise<string|null>){accessToken=provider}
 
@@ -33,7 +50,8 @@ export type Coffee={id:string;name:string;brand?:string;roast_date:string;notes:
 export type TrackedField='water_temp_c'|'water_g'|'ice_g'|'dose'|'ratio'|'grind'|'seconds'|'bloom_seconds'|'yield_g'|'stop_yield_g'|'target_yield_g'|'first_drip'|'paper'|'temp'|'pressure'|'basket'|'puck_screen'|'taste_balance'|'rating'|'taste'
 export type BrewProfile={brew_method:'espresso'|'filter';equipment_preset:'lelit_mara_x'|'generic_espresso'|'standard_pour_over'|'custom';equipment_name:string;tracked_fields:TrackedField[];revision:number}
 export type Shot={id?:string;coffee_id:string;revision:number;date:string;recorded_at?:string;taste_balance?:TasteBalance;choked?:boolean;rating?:number|null;dose:number|null;grind:string;paper:string;temp:string;water_temp_c?:number|null;water_g?:number|null;ice_g?:number|null;bloom_seconds?:number|null;stop_yield_g?:number|null;yield_g:number|null;target_yield_g?:number|null;target_yield_max_g?:number|null;outcome?:'unrated'|'good'|'adjust'|'bad'|'choked';locked?:boolean;seconds:number|null;first_drip:number|null;pressure:string;basket:string;puck_screen:string;status:string;taste:string;source:string}
-export type Message={id:string;coffee_id?:string|null;role:string;text:string;failed?:boolean;retryable?:boolean}
+export type Message={id:string;coffee_id?:string|null;role:string;text:string;failed?:boolean;retryable?:boolean;turn_id?:string;turnId?:string}
+export type Turn={id:string;status:string;error?:string;receipts?:Array<{kind:string;record:unknown}>}
 export type TasteBalance=''|'sour'|'slightly_sour'|'balanced'|'slightly_bitter'|'bitter'
 export const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 export const blankShot=(coffee_id:string):Shot=>({coffee_id,revision:0,date:today(),dose:profile.defaults.dose,grind:profile.defaults.grind,paper:profile.defaults.paper,temp:profile.defaults.temp,water_temp_c:null,water_g:null,ice_g:null,bloom_seconds:null,stop_yield_g:null,yield_g:null,target_yield_g:null,target_yield_max_g:null,outcome:'unrated',locked:false,seconds:null,first_drip:null,pressure:'',basket:profile.defaults.basket,puck_screen:profile.defaults.puckScreen,status:'logged',taste:'',source:''})

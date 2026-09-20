@@ -1,0 +1,26 @@
+{
+  "name": "@ezcoffee/ez-plugin",
+  "version": "0.1.0",
+  "description": "The deterministic Ez boundary for EzCoffee coffee and shot writes.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "release:check": "node scripts/release-check.mjs",
+    "verify": "npm test && npm run release:check"
+  },
+  "files": [
+    "bin",
+    "SKILL.md",
+    "README.md",
+    "ez-plugin.json",
+    "ez-deployment.json",
+    "Dockerfile",
+    ".dockerignore",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ]
+}
