@@ -233,6 +233,34 @@ class CoffeeContract(unittest.TestCase):
   state=self.http.portal.call(state_for,'test-owner')
   message=next(row for row in state['messages'] if row['id']==job['id']+'-assistant-failed')
   self.assertIn('saved coffees and shots were left unchanged',message['text'])
+  self.assertFalse(message['retryable'])
+  database.client.close()
+ def test_failed_chat_retry_reuses_the_original_message_and_is_bounded(self):
+  from pymongo import MongoClient
+  from unittest.mock import AsyncMock, patch
+  from src.main import CHAT_RETRY_LIMIT, state_for
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  job_id='retryable-chat'
+  database.jobs.insert_one({'account_id':'test-owner','id':job_id,'message':'Try again.','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'failed','created_at':'2026-09-15T00:00:00+00:00','receipts':[],'retry_count':0,'action_attempted':False,'error':'Coffee chat is temporarily unavailable. Please try again.'})
+  database.messages.insert_one({'account_id':'test-owner','id':job_id+'-user','coffee_id':'coffee-1','role':'user','text':'Try again.'})
+  state=self.http.portal.call(state_for,'test-owner')
+  failed=next(row for row in state['messages'] if row['id']==job_id+'-assistant-failed')
+  self.assertTrue(failed['retryable'])
+  with patch('src.main.run_chat',new=AsyncMock()) as run:
+   response=self.http.post('/chat/'+job_id+'/retry')
+   self.http.portal.call(asyncio.sleep,0)
+   self.assertEqual(response.status_code,200)
+   self.assertEqual(response.json()['retry_count'],1)
+   run.assert_awaited_once()
+  updated=database.jobs.find_one({'account_id':'test-owner','id':job_id})
+  self.assertEqual(updated['status'],'queued')
+  self.assertEqual(updated['retry_count'],1)
+  self.assertEqual(database.messages.count_documents({'account_id':'test-owner','id':job_id+'-user'}),1)
+  database.jobs.update_one({'account_id':'test-owner','id':job_id},{'$set':{'status':'failed','retry_count':CHAT_RETRY_LIMIT,'error':'Coffee chat is temporarily unavailable. Please try again.'}})
+  limited=self.http.post('/chat/'+job_id+'/retry')
+  self.assertEqual(limited.status_code,409)
+  database.messages.delete_many({'account_id':'test-owner','id':{'$in':[job_id+'-user',job_id+'-assistant']}})
+  database.jobs.delete_one({'account_id':'test-owner','id':job_id})
   database.client.close()
  def test_fast_next_shot_uses_ten_logged_shots_and_replaces_the_plan(self):
   from unittest.mock import AsyncMock, patch

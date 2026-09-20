@@ -64,7 +64,9 @@ class OpenRouterSettings:
         api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not api_key:
             raise OpenRouterConfigError("OPENROUTER_API_KEY is required when hosted chat is enabled.")
-        model = "z-ai/glm-5.3-flash"
+        # Pin OpenRouter's tilde-latest alias in code so a stale runtime
+        # variable cannot silently move production to a different model.
+        model = "~z-ai/glm-flash-latest"
         try:
             max_output_tokens = int(os.getenv("OPENROUTER_MAX_OUTPUT_TOKENS", "1200"))
             timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "30"))
@@ -104,11 +106,11 @@ def build_payload(prompt: str, history: list[dict[str, str]], settings: OpenRout
         "messages": build_messages(prompt, history),
         "max_tokens": settings.max_output_tokens,
         "temperature": 0.2,
-        # GLM is a reasoning model. Without an explicit effort it can spend the
-        # entire completion budget thinking and return no user-visible content.
+        # Keep GLM's mandatory reasoning bounded so it leaves room for the
+        # user-visible structured response within the output limit.
         "reasoning": {"effort": "low"},
         # Route only to providers that honor the strict structured-output
-        # parameters. Some GLM providers otherwise return plain Markdown.
+        # parameters. Providers otherwise may return plain Markdown.
         "provider": {"require_parameters": True, "allow_fallbacks": True},
         "response_format": {
             "type": "json_schema",

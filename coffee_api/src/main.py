@@ -34,6 +34,7 @@ db = client[os.getenv('MONGO_DB','ezcoffee')]
 tasks = set()
 logger = logging.getLogger(__name__)
 CHAT_ACTION_REJECTED = 'Coffee chat could not safely apply that change. Your existing records are safe. Please send it again to retry.'
+CHAT_RETRY_LIMIT = 3
 def now(): return datetime.now(timezone.utc).isoformat()
 async def report_activity(account_id, email=None, name=None, event='app_open'):
     if not ANALYTICS_URL or not ANALYTICS_TOKEN or account_id == SELFHOST_ACCOUNT: return
@@ -253,6 +254,10 @@ async def state_for(account_id):
                 job_id=re.sub(r'-user$','',message['id'])
                 failed=failed_jobs.get(job_id) if message.get('role')=='user' else None
                 if failed:
+                    retry_count=failed.get('retry_count',0)
+                    try: retry_count=int(retry_count or 0)
+                    except (TypeError,ValueError): retry_count=0
+                    retryable=retry_count < CHAT_RETRY_LIMIT and not failed.get('action_attempted') and not failed.get('receipts')
                     text=(
                         'I couldn\'t safely apply that change, so your saved coffees and shots were left unchanged. Please send it again to retry.'
                         if failed.get('error') == CHAT_ACTION_REJECTED
@@ -260,7 +265,7 @@ async def state_for(account_id):
                     )
                     visible_messages.append({
                         'id':job_id+'-assistant-failed','coffee_id':message.get('coffee_id') or failed.get('coffee_id'),
-                        'role':'assistant','text':text
+                        'role':'assistant','text':text,'failed':True,'retryable':retryable
                     })
             messages=visible_messages
     active_job=await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}},{'_id':0,'token':0,'account_id':0}) if AI_ENABLED else None
@@ -429,7 +434,7 @@ async def chat(data:Chat,request:Request):
     if previous:return clean(previous)
     if not data.message.strip():raise HTTPException(422,'Enter a message')
     if await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}}):raise HTTPException(409,'A chat reply is already running.')
-    job={'account_id':account_id,'id':data.id,'message':data.message,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[]}
+    job={'account_id':account_id,'id':data.id,'message':data.message,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[],'retry_count':0,'action_attempted':False}
     if AI_BACKEND == 'codex': job['token']=secrets.token_urlsafe(32)
     await db.jobs.insert_one(job)
     await db.messages.insert_one({'account_id':account_id,'id':data.id+'-user','coffee_id':data.coffee_id,'role':'user','text':data.message})
@@ -495,6 +500,11 @@ async def run_chat(job):
                 ]}
             ).sort('_id',-1).limit(2)]
             result=await openrouter_reply(prompt,list(reversed(history)))
+            if result.actions:
+                # A write may succeed before its receipt is recorded. Mark the
+                # job before applying the action so retries never duplicate a
+                # potentially partial canonical write.
+                await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'action_attempted':True}})
             try:
                 for action in result.actions:
                     await apply_inference_action(job,action)
@@ -542,6 +552,34 @@ async def apply_inference_action(job,action):
         row=await save(db.coffees,key or str(uuid.uuid4()),Coffee(**data),account_id)
     await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$push':{'receipts':{'kind':action['kind'],'record':row}}})
     return row
+
+@app.post('/chat/{key}/retry')
+async def retry_chat(key:str,request:Request):
+    if not AI_ENABLED: raise HTTPException(404,'Chat is not enabled in this profile.')
+    account_id=request.state.account_id
+    job=await db.jobs.find_one({'account_id':account_id,'id':key})
+    if not job: raise HTTPException(404,'Chat job not found')
+    if job.get('status') in {'queued','running','complete'}:
+        return clean(job)
+    retry_count=job.get('retry_count',0)
+    try: retry_count=int(retry_count or 0)
+    except (TypeError,ValueError): retry_count=0
+    if job.get('status') != 'failed' or retry_count >= CHAT_RETRY_LIMIT or job.get('action_attempted') or job.get('receipts'):
+        raise HTTPException(409,'This reply cannot be retried safely. Please send it again.')
+    if await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']},'id':{'$ne':key}}):
+        raise HTTPException(409,'A chat reply is already running.')
+    if not await db.messages.find_one({'account_id':account_id,'id':key+'-user','role':'user'}):
+        raise HTTPException(409,'The original chat message is no longer available.')
+    if await db.messages.find_one({'account_id':account_id,'id':key+'-assistant'}):
+        raise HTTPException(409,'This chat reply already exists.')
+    updated=await db.jobs.find_one_and_update(
+        {'account_id':account_id,'id':key,'status':'failed'},
+        {'$set':{'status':'queued','action_attempted':False},'$unset':{'error':''},'$inc':{'retry_count':1}},
+        return_document=True,
+    )
+    if not updated: raise HTTPException(409,'This reply is already being retried.')
+    task=asyncio.create_task(run_chat(updated));tasks.add(task);task.add_done_callback(tasks.discard)
+    return clean(updated)
 
 @app.get('/chat/{key}')
 async def job_status(key:str,request:Request):
