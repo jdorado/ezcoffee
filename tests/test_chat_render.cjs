@@ -1,0 +1,13 @@
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+
+const source = fs.readFileSync(path.resolve(__dirname, '../coffee_app/src/main.tsx'), 'utf8')
+assert.match(source, /function balanceBold/)
+assert.match(source, /function stripProseBold/)
+assert.match(source, /balanceBold\(emphasizeCoffeeValues\(stripProseBold/)
+assert.match(source, /renderedMessages=useMemo/)
+assert.match(source, /renderedMessages\.map\(\(m,index\)/)
+assert.doesNotMatch(source, /marked\.parse\(emphasizeCoffeeValues\(m\.text\)\)/)
+assert.doesNotMatch(source, /return marks%2===1\?text\+'\*\*'/)
+console.log('Chat render: assistant Markdown is parsed once per message list and bold stays balanced.')

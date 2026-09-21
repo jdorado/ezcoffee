@@ -6,4 +6,7 @@ const source = fs.readFileSync(path.resolve(__dirname, '../coffee_app/src/main.t
 assert.match(source, /encodeURIComponent\(jobId\).*\/retry/)
 assert.match(source, /className="message-retry"/)
 assert.match(source, /aria-label="Retry message"/)
-console.log('Chat retry: failed replies expose a bounded retry action in the frontend.')
+assert.match(source, /-user\$\//)
+assert.match(source, /resendMessage/)
+assert.match(source, /Send again/)
+console.log('Chat retry: the sent message exposes retry, plus send-again for rejected actions.')

@@ -24,7 +24,7 @@ class CoffeeContract(unittest.TestCase):
   plan=self.http.post('/shots',json={'coffee_id':coffee['id'],'status':'planned','date':'2026-09-09'}).json()
   payload=json.loads(self.http.portal.call(chat_prompt,{'account_id':'test-owner','id':'test','message':'That shot was nice','coffee_id':coffee['id']}))
   recent=payload['current_records']['recent_logged_shots']
-  self.assertEqual([s['id'] for s in recent],[s['id'] for s in rows[1:5]][::-1])
+  self.assertEqual([s['id'] for s in recent],[s['id'] for s in rows[:-1]][::-1])
   self.assertEqual(recent[0]['rating'],4)
   self.assertEqual(recent[0]['revision'],1)
   self.assertEqual(payload['current_records']['selected_coffee']['name'],'Chat snapshot test')
@@ -35,6 +35,53 @@ class CoffeeContract(unittest.TestCase):
   self.assertIn('always update that same planned record',payload['record_guidance'])
   self.assertIn('even when the owner asked only for advice',payload['record_guidance'])
   self.http.delete('/coffees/'+coffee['id']+'?revision=1')
+ def test_chat_context_answers_which_coffee_last_shots_and_best_settings(self):
+  import json
+  from src.main import chat_prompt
+  ethiopia=self.http.post('/coffees',json={'name':'Smoke Ethiopia','brand':'Test Roaster','roast_date':'2026-09-10','notes':'Washed Yirgacheffe, floral and sweet.'}).json()
+  brazil=self.http.post('/coffees',json={'name':'Smoke Brazil','brand':'Test Roaster','roast_date':'2026-08-01','notes':'Natural, nutty and heavy.'}).json()
+  ratings=[3,4,5,4,5]
+  shots=[self.http.post('/shots',json={'coffee_id':ethiopia['id'],'date':f'2026-09-{day:02}','dose':18,'grind':'5.0','yield_g':36,'temp':'I','rating':rating,'taste':'shot note'}).json() for day,rating in zip(range(1,6),ratings)]
+  locked=self.http.put('/shots/'+shots[-1]['id'],json={'coffee_id':ethiopia['id'],'revision':shots[-1]['revision'],'locked':True}).json()
+  self.assertTrue(locked['locked'])
+  for day in (6,7):
+   self.http.post('/shots',json={'coffee_id':brazil['id'],'date':f'2026-09-{day:02}','dose':18,'grind':'6.0','yield_g':36,'rating':2})
+  retired=self.http.post('/coffees',json={'name':'Smoke Retired'}).json()
+  gem=self.http.post('/shots',json={'coffee_id':retired['id'],'date':'2026-08-20','dose':18,'grind':'4.5','yield_g':37,'rating':5,'taste':'retired gem'}).json()
+  retired_archived=self.http.put('/coffees/'+retired['id'],json={**retired,'archived':True}).json()
+  payload=json.loads(self.http.portal.call(chat_prompt,{'account_id':'test-owner','id':'smoke','message':'Which coffee next?','coffee_id':ethiopia['id']}))
+  records=payload['current_records']
+  # Archived beans leave the catalog but lend their best shots as reference.
+  self.assertFalse(any(c['id']==retired['id'] for c in records['coffee_catalog']))
+  self.assertFalse(any(c['id']==retired['id'] for c in records['coffee_overview']))
+  reference=records['reference_shots']
+  self.assertLessEqual(len(reference),15)
+  gem_ref=next(r for r in reference if r['coffee']=='Smoke Retired')
+  self.assertTrue(gem_ref['archived'])
+  self.assertEqual((gem_ref['grind'],gem_ref['yield_g'],gem_ref['rating']),( '4.5',37,5))
+  self.assertEqual([r['date'] for r in reference],sorted([r['date'] for r in reference],reverse=True))
+  # Q1 — which coffee to try next: catalog plus per-coffee stats.
+  catalog={c['name']:c for c in records['coffee_catalog']}
+  self.assertIn('Washed Yirgacheffe',catalog['Smoke Ethiopia']['notes'])
+  self.assertEqual(catalog['Smoke Ethiopia']['roast_date'],'2026-09-10')
+  overview={c['name']:c for c in records['coffee_overview']}
+  self.assertEqual(overview['Smoke Ethiopia']['logged_count'],5)
+  self.assertEqual(overview['Smoke Ethiopia']['average_rating'],4.2)
+  self.assertEqual(overview['Smoke Brazil']['average_rating'],2)
+  self.assertEqual(records['selected_coffee']['notes'],'Washed Yirgacheffe, floral and sweet.')
+  # Q2 — last shots: newest-first full records with a documented bound of six.
+  recent=records['recent_logged_shots']
+  self.assertEqual(len(recent),5)
+  self.assertEqual([s['date'] for s in recent],['2026-09-05','2026-09-04','2026-09-03','2026-09-02','2026-09-01'])
+  self.assertTrue(all('dose' in s and 'grind' in s for s in recent))
+  # Q3 — best settings: the top-rated shot is identifiable with full settings.
+  best=max(recent,key=lambda s:s['rating'] or 0)
+  self.assertEqual(best['rating'],5)
+  self.assertEqual((best['dose'],best['grind'],best['yield_g']),(18,'5.0',36))
+  self.assertTrue(any(s.get('locked') for s in recent))
+  self.http.delete('/coffees/'+ethiopia['id']+'?revision=1')
+  self.http.delete('/coffees/'+brazil['id']+'?revision=1')
+  self.http.delete('/coffees/'+retired['id']+'?revision='+str(retired_archived['revision']))
  def test_timestamp_and_taste_survive_edits(self):
   c=self.http.post('/coffees',json={'name':'Timestamp test'}).json()
   first=self.http.post('/shots',json={'coffee_id':c['id'],'date':'2026-09-09','taste_balance':'slightly_sour','choked':False,'rating':4}).json()
@@ -135,7 +182,7 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(coffee['brand'],'Friend Roasters')
   self.assertEqual(self.http.post('/shots',json={'coffee_id':coffee['id'],'water_temp_c':101}).status_code,422)
   self.assertEqual(self.http.put('/profile',json={**default,'revision':current['revision']}).status_code,200)
- def test_archived_coffee_keeps_history_for_chat_but_cannot_receive_shots(self):
+ def test_archived_coffee_leaves_chat_context_but_keeps_history(self):
   import json
   from src.main import chat_prompt
   coffee=self.http.post('/coffees',json={'name':'Archive test'}).json()
@@ -145,7 +192,11 @@ class CoffeeContract(unittest.TestCase):
   self.assertTrue(next(c for c in self.http.get('/state').json()['coffees'] if c['id']==coffee['id'])['archived'])
   self.assertEqual(self.http.post('/shots',json={'coffee_id':coffee['id']}).status_code,404)
   payload=json.loads(self.http.portal.call(chat_prompt,{'account_id':'test-owner','id':'archive-test','message':'What should I buy next?','coffee_id':None}))
-  self.assertTrue(next(row for row in payload['current_records']['coffee_catalog'] if row['id']==coffee['id'])['archived'])
+  self.assertFalse(any(row['id']==coffee['id'] for row in payload['current_records']['coffee_catalog']))
+  self.assertFalse(any(row['id']==coffee['id'] for row in payload['current_records']['coffee_overview']))
+  self.assertFalse(any(s['coffee_id']==coffee['id'] for s in payload['current_records']['recent_logged_shots']))
+  scoped=json.loads(self.http.portal.call(chat_prompt,{'account_id':'test-owner','id':'archive-scoped','message':'Tell me about this one.','coffee_id':coffee['id']}))
+  self.assertEqual(scoped['current_records']['selected_coffee']['id'],coffee['id'])
   restored=self.http.put('/coffees/'+coffee['id'],json={**archived,'archived':False}).json()
   self.assertFalse(restored['archived'])
   self.assertEqual(self.http.post('/shots',json={'coffee_id':coffee['id']}).status_code,200)
@@ -229,11 +280,36 @@ class CoffeeContract(unittest.TestCase):
   failed=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
   self.assertEqual(failed['status'],'failed')
   self.assertEqual(failed['error'],CHAT_ACTION_REJECTED)
+  self.assertIn('HTTPException',failed['error_detail'])
+  self.assertIn('Coffee not found',failed['error_detail'])
+  self.assertIn('kind=shot',failed['error_detail'])
   self.assertEqual(failed['receipts'],[])
   state=self.http.portal.call(state_for,'test-owner')
+  sent=next(row for row in state['messages'] if row['id']==job['id']+'-user')
+  self.assertTrue(sent['failed'])
+  self.assertFalse(sent['retryable'])
   message=next(row for row in state['messages'] if row['id']==job['id']+'-assistant-failed')
   self.assertIn('saved coffees and shots were left unchanged',message['text'])
   self.assertFalse(message['retryable'])
+  database.client.close()
+ def test_openrouter_failure_records_provider_and_stage(self):
+  from pymongo import MongoClient
+  from unittest.mock import AsyncMock, patch
+  from src.main import run_chat
+  from src.services.openrouter import OpenRouterError
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  job={'account_id':'test-owner','id':'openrouter-provider-failure','message':'What should I change?','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'queued','created_at':'2026-09-15T00:00:00+00:00','receipts':[]}
+  database.jobs.insert_one(job)
+  database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-1','role':'user','text':job['message']})
+  reply=AsyncMock(side_effect=OpenRouterError('OpenRouter returned invalid structured output.',code='invalid_structured_output',provider='Parasail',finish_reason='stop',stage='parse'))
+  with patch('src.main.AI_BACKEND','openrouter'),patch('src.main.openrouter_reply',reply):
+   self.http.portal.call(run_chat,job)
+  failed=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
+  self.assertEqual(failed['status'],'failed')
+  self.assertEqual(failed['error_code'],'invalid_structured_output')
+  self.assertEqual(failed['response_provider'],'Parasail')
+  self.assertEqual(failed['finish_reason'],'stop')
+  self.assertIn('stage=parse',failed['error_detail'])
   database.client.close()
  def test_failed_chat_retry_reuses_the_original_message_and_is_bounded(self):
   from pymongo import MongoClient
@@ -244,8 +320,12 @@ class CoffeeContract(unittest.TestCase):
   database.jobs.insert_one({'account_id':'test-owner','id':job_id,'message':'Try again.','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'failed','created_at':'2026-09-15T00:00:00+00:00','receipts':[],'retry_count':0,'action_attempted':False,'error':'Coffee chat is temporarily unavailable. Please try again.'})
   database.messages.insert_one({'account_id':'test-owner','id':job_id+'-user','coffee_id':'coffee-1','role':'user','text':'Try again.'})
   state=self.http.portal.call(state_for,'test-owner')
+  sent=next(row for row in state['messages'] if row['id']==job_id+'-user')
+  self.assertTrue(sent['failed'])
+  self.assertTrue(sent['retryable'])
   failed=next(row for row in state['messages'] if row['id']==job_id+'-assistant-failed')
-  self.assertTrue(failed['retryable'])
+  self.assertTrue(failed['failed'])
+  self.assertFalse(failed['retryable'])
   with patch('src.main.run_chat',new=AsyncMock()) as run:
    response=self.http.post('/chat/'+job_id+'/retry')
    self.http.portal.call(asyncio.sleep,0)
@@ -262,54 +342,91 @@ class CoffeeContract(unittest.TestCase):
   database.messages.delete_many({'account_id':'test-owner','id':{'$in':[job_id+'-user',job_id+'-assistant']}})
   database.jobs.delete_one({'account_id':'test-owner','id':job_id})
   database.client.close()
- def test_fast_next_shot_uses_ten_logged_shots_and_replaces_the_plan(self):
-  from unittest.mock import AsyncMock, patch
-  roast_date=(datetime.now(timezone.utc).date()-timedelta(days=7)).isoformat()
-  coffee=self.http.post('/coffees',json={'name':'Triage test','roast_date':roast_date}).json()
-  for index in range(12):
-   self.http.post('/shots',json={'coffee_id':coffee['id'],'date':f'2026-08-{index+1:02}','dose':18,'grind':'5.0','stop_yield_g':35,'yield_g':36,'water_temp_c':93,'temp':'I','taste':'sour','taste_balance':'sour','outcome':'adjust'})
-  choice=AsyncMock(return_value=('finer',.84,'jev-test'))
-  with patch('src.main.TYPESAFE_ENABLED',True),patch('src.main.typesafe_choice',choice):
-   response=self.http.post('/recommendations/next-shot',json={'coffee_id':coffee['id'],'guidance':'Make it sweeter today.','paper':'no'})
-  self.assertEqual(response.status_code,200)
-  result=response.json()
-  self.assertEqual(result['shots_considered'],10)
-  self.assertEqual(result['plan']['grind'],'4.9')
-  self.assertEqual(result['plan']['target_yield_g'],35)
-  self.assertEqual(result['plan']['target_yield_max_g'],36)
-  self.assertEqual(result['plan']['status'],'planned')
-  self.assertEqual(result['plan']['paper'],'no')
-  self.assertEqual(result['plan']['temp'],'I')
-  self.assertIsNone(result['plan']['yield_g'])
-  self.assertEqual(len(choice.await_args.args[0]['shots']),10)
-  self.assertEqual(choice.await_args.args[0]['owner_guidance'],'Make it sweeter today.')
-  self.assertEqual(choice.await_args.args[0]['coffee']['roast_age_days'],7)
-  self.assertEqual(choice.await_args.args[0]['coffee']['days_left_in_28_day_window'],21)
-  self.assertEqual(choice.await_args.args[0]['recipe_constraints'],{'paper':'no'})
-  self.assertTrue(all(candidate['plan']['paper']=='no' for candidate in choice.await_args.args[1].values()))
-  self.assertEqual(choice.await_args.args[1]['pid_0']['plan']['temp'],'0')
-  self.assertEqual(choice.await_args.args[1]['pid_II']['plan']['temp'],'II')
-  state=self.http.get('/state').json()
-  plans=[s for s in state['shots'] if s['coffee_id']==coffee['id'] and s['status']=='planned']
-  self.assertEqual(len(plans),1)
-  first_id=plans[0]['id']
-  with patch('src.main.TYPESAFE_ENABLED',True),patch('src.main.typesafe_choice',choice):
-   replaced=self.http.post('/recommendations/next-shot',json={'coffee_id':coffee['id']}).json()['plan']
-  self.assertEqual(replaced['id'],first_id)
-  self.assertEqual(replaced['revision'],2)
-  self.assertEqual(len([s for s in self.http.get('/state').json()['shots'] if s['coffee_id']==coffee['id'] and s['status']=='planned']),1)
-  profile_without_paper=AsyncMock(return_value={'tracked_fields':['dose','grind','temp']})
-  choice.reset_mock()
-  with patch('src.main.TYPESAFE_ENABLED',True),patch('src.main.typesafe_choice',choice),patch('src.main.read_profile',profile_without_paper):
-   self.http.post('/recommendations/next-shot',json={'coffee_id':coffee['id'],'paper':'yes'})
-  self.assertEqual(choice.await_args.args[0]['recipe_constraints'],{})
-  self.assertTrue(all(candidate['plan']['paper']=='unknown' for candidate in choice.await_args.args[1].values()))
+ def test_plan_sync_failure_reports_its_own_retryable_notice(self):
+  from pymongo import MongoClient
+  from src.main import PLAN_SYNC_MESSAGE, state_for
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  job_id='plan-sync-chat'
+  database.jobs.insert_one({'account_id':'test-owner','id':job_id,'message':'What next?','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'failed','created_at':'2026-09-15T00:00:00+00:00','receipts':[],'retry_count':0,'action_attempted':False,'error':PLAN_SYNC_MESSAGE})
+  database.messages.insert_one({'account_id':'test-owner','id':job_id+'-user','coffee_id':'coffee-1','role':'user','text':'What next?'})
+  state=self.http.portal.call(state_for,'test-owner')
+  sent=next(row for row in state['messages'] if row['id']==job_id+'-user')
+  self.assertTrue(sent['failed'])
+  self.assertTrue(sent['retryable'])
+  notice=next(row for row in state['messages'] if row['id']==job_id+'-assistant-failed')
+  self.assertIn("didn't save it to your planned shot",notice['text'])
+  self.assertFalse(notice['retryable'])
+  database.messages.delete_many({'account_id':'test-owner','id':{'$in':[job_id+'-user',job_id+'-assistant']}})
+  database.jobs.delete_one({'account_id':'test-owner','id':job_id})
+  database.client.close()
+ def test_chat_context_carries_cross_coffee_dial_in_evidence(self):
+  import json
+  from src.main import chat_prompt
+  coffee=self.http.post('/coffees',json={'name':'Dial-in target','roast_date':'2026-09-01'}).json()
+  other=self.http.post('/coffees',json={'name':'Reference bean','roast_date':'2026-08-25'}).json()
+  self.http.post('/shots',json={'coffee_id':coffee['id'],'date':'2026-09-01','dose':18,'grind':'5.2','target_yield_g':36,'yield_g':37,'water_temp_c':93,'outcome':'good','rating':5})
+  self.http.post('/shots',json={'coffee_id':coffee['id'],'date':'2026-09-02','dose':18,'grind':'5.0','stop_yield_g':34,'yield_g':36,'water_temp_c':93,'taste_balance':'sour','outcome':'adjust'})
+  self.http.post('/shots',json={'coffee_id':coffee['id'],'date':'2026-09-03','dose':18,'grind':'4.9','yield_g':36,'water_temp_c':93,'taste_balance':'sour','outcome':'adjust'})
+  self.http.post('/shots',json={'coffee_id':other['id'],'date':'2026-09-04','dose':16,'grind':'4.5','target_yield_g':32,'yield_g':32,'water_temp_c':94,'outcome':'good','rating':5,'reference':True})
+  payload=json.loads(self.http.portal.call(chat_prompt,{'account_id':'test-owner','id':'dial','message':'Plan my next shot for this coffee.','coffee_id':coffee['id']}))
+  records=payload['current_records']
+  # Each change is measured against the previous shot and reports the taste result.
+  self.assertEqual(records['shot_deltas'][0]['changes']['grind'],'5.0→4.9')
+  self.assertEqual(records['shot_deltas'][0]['taste_balance'],'sour')
+  # The next test anchors on the good shot's recipe, not the newest failed one.
+  self.assertEqual(records['best_shot_for_coffee']['grind'],'5.2')
+  # A sour report earns a decisive two-step grind candidate from that anchor.
+  self.assertEqual(records['next_shot_candidates']['finer_2']['plan']['grind'],'5.0')
+  # A working recipe from another coffee is offered as a starting point, but
+  # only its settings travel: dose and targets stay this coffee's.
+  borrowed=records['next_shot_candidates']['reference_0']['plan']
+  self.assertEqual(borrowed['coffee_id'],coffee['id'])
+  self.assertEqual(borrowed['grind'],'4.5')
+  self.assertEqual(borrowed['dose'],18)
+  self.assertEqual(borrowed['target_yield_g'],36)
+  self.assertIn('Reference bean',records['next_shot_candidates']['reference_0']['label'])
+  # Derived facts and roast age travel with each shot and reference.
+  self.assertEqual(records['recent_logged_shots'][1]['facts']['drip_g'],2)
+  self.assertEqual(records['shot_deltas'][1]['choked'],False)
+  self.assertEqual(records['reference_shots'][0]['reference'],True)
+  self.assertEqual(records['reference_shots'][0]['facts']['ratio'],'1:2.00')
+  self.assertIsInstance(records['reference_shots'][0]['roast_age_days'],int)
+  self.assertIsInstance(records['selected_coffee']['roast_age_days'],int)
+  self.assertIn(records['selected_coffee']['roast_window'].split(' ·')[0],('resting','optimal','past peak'))
+  # The whole attempt arc is summarized: two failures since the good anchor.
+  self.assertEqual(records['dial_in_summary']['attempts_since_last_success'],2)
+  self.assertFalse(records['dial_in_summary']['unresolved'])
+  self.assertEqual([trial['grind'] for trial in records['dial_in_summary']['grind_trials']],['4.9','5.0','5.2'])
+  self.assertIn('paper',records['reference_shots'][0])
+  self.assertIn('reference_shots',payload['dial_in_guidance'])
+  self.assertIn('dial_in_summary',payload['dial_in_guidance'])
+  self.http.delete('/coffees/'+coffee['id']+'?revision=1')
+  self.http.delete('/coffees/'+other['id']+'?revision=1')
  def test_next_shot_candidates_do_not_invert_target_range_from_a_short_measured_yield(self):
   from src.main import next_shot_candidates
   candidates=next_shot_candidates({'coffee_id':'coffee-1','target_yield_g':31,'stop_yield_g':29,'yield_g':30.6,'grind':'8.0'})
   for candidate in candidates.values():
    plan=candidate['plan']
    self.assertTrue(plan['target_yield_max_g'] is None or plan['target_yield_max_g']>=plan['target_yield_g'])
+ def test_next_shot_candidates_never_repeat_an_outright_failure(self):
+  from src.main import next_shot_candidates, roast_age_from, shot_facts
+  # Imported logbooks carry "5 August 2026"; app-created records use ISO.
+  self.assertIsInstance(roast_age_from('5 August 2026'),int)
+  self.assertIsInstance(roast_age_from('2026-08-25'),int)
+  self.assertIsNone(roast_age_from(''))
+  self.assertIsNone(roast_age_from('August 2026'))
+  # Legacy rows encode choking in outcome while the boolean stays false.
+  self.assertTrue(shot_facts({'outcome':'choked'})['choked'])
+  self.assertFalse(shot_facts({'outcome':'adjust'})['choked'])
+  facts=shot_facts({'dose':18,'yield_g':36,'stop_yield_g':34,'seconds':30,'taste_balance':'sour'})
+  self.assertEqual((facts['drip_g'],facts['ratio'],facts['flow_g_s'],facts['evidence']),(2,'1:2.00',1.2,'taste'))
+  self.assertEqual(shot_facts({'outcome':'unrated','dose':18})['evidence'],'settings')
+  self.assertEqual(shot_facts({})['evidence'],'none')
+  for outcome in ('bad','choked'):
+   candidates=next_shot_candidates({'coffee_id':'coffee-1','grind':'5.0','outcome':outcome})
+   self.assertNotIn('repeat',candidates)
+   self.assertIn('finer',candidates)
+  self.assertIn('repeat',next_shot_candidates({'coffee_id':'coffee-1','grind':'5.0','outcome':'adjust'}))
  def test_openrouter_actions_use_canonical_account_scoped_writes(self):
   from fastapi import HTTPException
   from pymongo import MongoClient
@@ -360,11 +477,11 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(self.http.post('/agent/save',headers={'X-Coffee-Token':'bad'},json={'kind':'coffee','data':{'name':'blocked'}}).status_code,403)
  def test_selfhost_profile_exposes_shots_without_chat(self):
   from unittest.mock import patch
-  with patch('src.main.AI_ENABLED',False),patch('src.main.TYPESAFE_ENABLED',False),patch('src.main.REQUIRE_AUTH',False):
+  with patch('src.main.AI_ENABLED',False),patch('src.main.REQUIRE_AUTH',False):
    state=self.http.get('/state').json()
    self.assertEqual(state['messages'],[])
    self.assertIsNone(state['active_job'])
-   self.assertEqual(state['capabilities'],{'chat':False,'next_shot':False,'auth':False,'app_mode':'personal'})
+   self.assertEqual(state['capabilities'],{'chat':False,'auth':False,'app_mode':'personal'})
    self.assertEqual(self.http.post('/chat',json={'id':'disabled','message':'test'}).status_code,404)
    self.assertEqual(self.http.get('/agent/context',headers={'X-Coffee-Token':'bad'}).status_code,404)
  def test_delete_revision_and_coffee_history(self):
