@@ -277,6 +277,71 @@ class CoffeeContract(unittest.TestCase):
   self.assertIn('saved coffees and shots were left unchanged',message['text'])
   self.assertFalse(message['retryable'])
   database.client.close()
+ def test_invented_plan_id_creates_the_planned_shot(self):
+  from pymongo import MongoClient
+  from unittest.mock import AsyncMock, patch
+  from src.main import run_chat
+  from src.services.openrouter import OpenRouterReply
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  job={'account_id':'test-owner','id':'invented-plan-create','message':'first shot','coffee_id':'coffee-3','shot_date':'2026-09-21','status':'queued','created_at':'2026-09-21T00:00:00+00:00','receipts':[],'retry_count':0,'action_attempted':False}
+  database.jobs.insert_one(job)
+  database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-3','role':'user','text':job['message']})
+  action={'kind':'shot','id':'planned-next-shot','data':{'coffee_id':'coffee-3','revision':0,'status':'planned','dose':14.5,'grind':'9'}}
+  reply=AsyncMock(return_value=OpenRouterReply(text='Plan saved.',actions=[action]))
+  with patch('src.main.openrouter_reply',reply):
+   self.http.portal.call(run_chat,job)
+  done=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
+  self.assertEqual(done['status'],'complete')
+  self.assertEqual(len(done['receipts']),1)
+  saved=done['receipts'][0]['record']
+  self.assertNotEqual(saved['id'],'planned-next-shot')
+  self.assertEqual((saved['coffee_id'],saved['status'],saved['grind'],saved['dose'],saved['revision']),('coffee-3','planned','9',14.5,1))
+  self.assertEqual(database.shots.count_documents({'account_id':'test-owner','coffee_id':'coffee-3','status':'planned','deleted_at':{'$exists':False}}),1)
+  message=database.messages.find_one({'account_id':'test-owner','id':job['id']+'-assistant'})
+  self.assertEqual(message['text'],'Plan saved.')
+  database.client.close()
+ def test_invented_plan_id_resyncs_the_existing_plan(self):
+  from pymongo import MongoClient
+  from unittest.mock import AsyncMock, patch
+  from src.main import run_chat
+  from src.services.openrouter import OpenRouterReply
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  plan=self.http.post('/shots',json={'coffee_id':'coffee-4','status':'planned','dose':14.5,'grind':'9'}).json()
+  job={'account_id':'test-owner','id':'invented-plan-resync','message':'Plan my next shot for this coffee.','coffee_id':'coffee-4','shot_date':'2026-09-21','status':'queued','created_at':'2026-09-21T00:00:00+00:00','receipts':[],'retry_count':0,'action_attempted':False}
+  database.jobs.insert_one(job)
+  database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-4','role':'user','text':job['message']})
+  action={'kind':'shot','id':'shot-1','data':{'coffee_id':'coffee-4','revision':0,'status':'planned','grind':'8'}}
+  reply=AsyncMock(return_value=OpenRouterReply(text='Updated the plan.',actions=[action]))
+  with patch('src.main.openrouter_reply',reply):
+   self.http.portal.call(run_chat,job)
+  done=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
+  self.assertEqual(done['status'],'complete')
+  saved=done['receipts'][0]['record']
+  self.assertEqual(saved['id'],plan['id'])
+  self.assertEqual((saved['grind'],saved['dose']),('8',14.5))
+  self.assertEqual(saved['status'],'planned')
+  self.assertEqual(database.shots.count_documents({'account_id':'test-owner','coffee_id':'coffee-4','status':'planned','deleted_at':{'$exists':False}}),1)
+  database.client.close()
+ def test_unknown_shot_id_without_plan_status_is_still_rejected(self):
+  from pymongo import MongoClient
+  from unittest.mock import AsyncMock, patch
+  from src.main import CHAT_ACTION_REJECTED, run_chat
+  from src.services.openrouter import OpenRouterReply
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  job={'account_id':'test-owner','id':'invented-logged-id','message':'That shot was nice.','coffee_id':'coffee-5','shot_date':'2026-09-21','status':'queued','created_at':'2026-09-21T00:00:00+00:00','receipts':[],'retry_count':0,'action_attempted':False}
+  database.jobs.insert_one(job)
+  database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-5','role':'user','text':job['message']})
+  action={'kind':'shot','id':'shot-1','data':{'coffee_id':'coffee-5','revision':1,'taste':'nice'}}
+  reply=AsyncMock(return_value=OpenRouterReply(text='Logged.',actions=[action]))
+  with patch('src.main.openrouter_reply',reply):
+   self.http.portal.call(run_chat,job)
+  failed=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
+  self.assertEqual(failed['status'],'failed')
+  self.assertEqual(failed['error'],CHAT_ACTION_REJECTED)
+  self.assertIn('id=shot-1: 404: Record not found',failed['error_detail'])
+  self.assertEqual(failed['receipts'],[])
+  self.assertEqual(database.shots.count_documents({'account_id':'test-owner','coffee_id':'coffee-5','deleted_at':{'$exists':False}}),0)
+  database.client.close()
  def test_openrouter_failure_records_provider_and_stage(self):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch

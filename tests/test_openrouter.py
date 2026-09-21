@@ -82,6 +82,18 @@ class OpenRouterContract(unittest.TestCase):
         synced = response_result({"choices": [{"message": {"content": '{"reply":"Next test: grind finer.","actions":[{"kind":"shot","id":"plan-1","data_json":"{\\"revision\\":4,\\"grind\\":\\"8.5\\",\\"status\\":\\"planned\\"}"}]}'}}]})
         validate_plan_sync(prompt, synced)
 
+    def test_invented_plan_id_still_counts_as_a_sync_attempt(self):
+        prompt = '{"current_records":{"planned_next_shot":{"id":"plan-1","revision":4}}}'
+        invented = response_result({"choices": [{"message": {"content": '{"reply":"Next test: grind finer.","actions":[{"kind":"shot","id":"shot-1","data_json":"{\\"revision\\":0,\\"grind\\":\\"8.5\\",\\"status\\":\\"planned\\"}"}]}'}}]})
+        validate_plan_sync(prompt, invented)
+
+    def test_record_ids_must_come_from_supplied_records(self):
+        self.assertIn('never invent, guess, or reuse a placeholder id', SYSTEM_PROMPT)
+        schema = build_payload('{"request":"help"}', [], self.settings())["response_format"]["json_schema"]["schema"]
+        description = schema["properties"]["actions"]["items"]["properties"]["id"]["description"]
+        self.assertIn("copied verbatim", description)
+        self.assertIn("Never a guessed or placeholder id", description)
+
     def test_explicit_plan_request_creates_the_planned_shot(self):
         prompt = '{"request":"Plan my next shot for this coffee and save it as the planned shot.","current_records":{}}'
         missing = response_result({"choices": [{"message": {"content": '{"reply":"Use a finer grind.","actions":[]}'}}]})
