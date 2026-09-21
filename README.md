@@ -153,7 +153,7 @@ profiles, not requirements for self-hosting.
 | --- | --- | --- | --- |
 | `selfhost` | Your own local installation | None by default | Off |
 | `hosted` | Free multi-user service | Privy | OpenRouter for every registered user |
-| `personal` | Maintainer migration bridge | Owner-only Privy | Isolated Codex sidecar |
+| `personal` | Maintainer's private deployment | Owner-only Privy | OpenRouter |
 
 ## Local development
 

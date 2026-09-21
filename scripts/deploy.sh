@@ -18,11 +18,10 @@ cd "$ROOT_DIR"
 # Runtime credentials, database exports, and CLI state are provisioned separately.
 rsync -az --exclude .git --exclude node_modules --exclude .venv --exclude dist \
   --exclude .vercel --exclude '.env*' --exclude __pycache__ --exclude data \
-  --exclude 'coffee_api/coffee_ai/workspace/*.json' \
   ./ "$COFFEE_VM_TARGET:$COFFEE_REMOTE_DIR/"
 ssh "$COFFEE_VM_TARGET" bash -s -- "$COFFEE_REMOTE_DIR" "$COFFEE_REMOTE_PROFILE" <<'REMOTE'
 set -euo pipefail
 cd "$1"
-sudo docker compose --env-file "$2" -f compose.personal.yml up -d --build --wait
+sudo docker compose --env-file "$2" -f compose.personal.yml up -d --build --wait --remove-orphans
 REMOTE
 curl --fail --silent --show-error "$COFFEE_HEALTH_URL"

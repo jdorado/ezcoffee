@@ -7,7 +7,6 @@ services:
     env_file: ${COFFEE_ENV_FILE:?Set COFFEE_ENV_FILE to the private runtime environment file}
     environment:
       APP_MODE: personal
-      AI_URL: http://ai:8102
       COFFEE_AI_ENABLED: "true"
       COFFEE_REQUIRE_AUTH: "true"
       MONGO_DB: ${MONGO_DB:-ezcoffee}
@@ -15,44 +14,9 @@ services:
       - "127.0.0.1:${COFFEE_API_PORT:-18084}:8080"
     volumes:
       - ./data:/app/data:ro
-    depends_on:
-      ai:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=5)"]
       interval: 10s
       timeout: 6s
       retries: 12
-
-  ai:
-    build:
-      context: .
-      dockerfile: coffee_api/coffee_ai/Dockerfile
-      args:
-        CODEX_BASE_IMAGE: ${COFFEE_CODEX_BASE_IMAGE:-node:22-bookworm-slim}
-    init: true
-    environment:
-      COFFEE_SHARE_CODEX_AUTH: ${COFFEE_SHARE_CODEX_AUTH:-0}
-      CODEX_MODEL: ${CODEX_MODEL:-gpt-5.6-sol}
-      CODEX_REASONING_EFFORT: ${CODEX_REASONING_EFFORT:-medium}
-    volumes:
-      - cli_state:/srv/coffee
-      - ${COFFEE_CODEX_SEED_DIR:?Set COFFEE_CODEX_SEED_DIR to a read-only Codex credential seed}:/run/shared-codex:ro
-      - ${COFFEE_AGENT_INSTRUCTIONS_FILE:-./coffee_api/coffee_ai/workspace/AGENTS.md}:/opt/coffee/AGENTS.md:ro
-    expose: ["8102"]
-    read_only: true
-    tmpfs: ["/tmp:size=128m"]
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: ["ALL"]
-    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8102/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 6s
-      retries: 12
-
-volumes:
-  cli_state:
-    name: ${COFFEE_CLI_VOLUME:-coffee_cli_state}

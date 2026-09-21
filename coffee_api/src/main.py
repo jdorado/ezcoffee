@@ -1,11 +1,11 @@
-import asyncio, json, logging, os, re, secrets, uuid
+import asyncio, json, logging, os, re, uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -22,7 +22,6 @@ if APP_MODE not in {'selfhost', 'hosted', 'personal'}:
     raise RuntimeError('APP_MODE must be selfhost, hosted, or personal')
 REQUIRE_AUTH = os.getenv('COFFEE_REQUIRE_AUTH', 'true' if APP_MODE in {'hosted','personal'} else 'false').lower() == 'true'
 AI_ENABLED = os.getenv('COFFEE_AI_ENABLED', 'false').lower() == 'true'
-AI_BACKEND = os.getenv('COFFEE_AI_BACKEND', 'codex' if APP_MODE == 'personal' else 'openrouter').strip().lower()
 OWNER_SUB = os.getenv('COFFEE_OWNER_SUB', '')
 ANALYTICS_URL = os.getenv('ANALYTICS_URL', '').rstrip('/')
 ANALYTICS_TOKEN = os.getenv('ANALYTICS_TOKEN', '')
@@ -124,13 +123,7 @@ async def lifespan(app):
         raise RuntimeError('The selfhost profile does not support owner authentication')
     if APP_MODE == 'selfhost' and AI_ENABLED:
         raise RuntimeError('The selfhost profile does not include AI')
-    if AI_ENABLED and AI_BACKEND not in {'codex','openrouter'}:
-        raise RuntimeError('COFFEE_AI_BACKEND must be codex or openrouter')
-    if APP_MODE == 'hosted' and AI_ENABLED and AI_BACKEND != 'openrouter':
-        raise RuntimeError('The hosted profile only supports the OpenRouter backend')
-    if APP_MODE != 'personal' and AI_ENABLED and AI_BACKEND == 'codex':
-        raise RuntimeError('The Codex backend is private to the personal profile')
-    if AI_ENABLED and AI_BACKEND == 'openrouter':
+    if AI_ENABLED:
         try: OpenRouterSettings.from_env()
         except OpenRouterConfigError as exc: raise RuntimeError(str(exc)) from exc
     if APP_MODE in {'hosted','personal'} and not REQUIRE_AUTH:
@@ -159,7 +152,7 @@ async def lifespan(app):
 app=FastAPI(title='ezcoffee',lifespan=lifespan)
 @app.middleware('http')
 async def require_owner(request:Request, call_next):
-    public=request.method == 'OPTIONS' or request.url.path in ['/health','/agent/context','/agent/save']
+    public=request.method == 'OPTIONS' or request.url.path == '/health'
     if REQUIRE_AUTH and not public:
         header=request.headers.get('Authorization','')
         if not header.startswith('Bearer '):
@@ -464,7 +457,6 @@ async def chat(data:Chat,request:Request):
     if not data.message.strip():raise HTTPException(422,'Enter a message')
     if await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}}):raise HTTPException(409,'A chat reply is already running.')
     job={'account_id':account_id,'id':data.id,'message':data.message,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[],'retry_count':0,'action_attempted':False}
-    if AI_BACKEND == 'codex': job['token']=secrets.token_urlsafe(32)
     await db.jobs.insert_one(job)
     await db.messages.insert_one({'account_id':account_id,'id':data.id+'-user','coffee_id':data.coffee_id,'role':'user','text':data.message})
     task=asyncio.create_task(run_chat(job));tasks.add(task);task.add_done_callback(tasks.discard)
@@ -474,7 +466,7 @@ async def chat_prompt(job):
     account_id=job['account_id']
     coffees=[clean(c) async for c in db.coffees.find({'account_id':account_id,'deleted_at':{'$exists':False}})]
     selected=next((c for c in coffees if c['id']==job['coffee_id']),None)
-    # The agent reasons over the active logbook only. Archived coffees stay
+    # The assistant reasons over the active logbook only. Archived coffees stay
     # readable in the UI and keep their history, but leave the prompt — unless
     # explicitly selected for this turn.
     names={c['id']:c for c in coffees}
@@ -600,44 +592,35 @@ async def run_chat(job):
         account_id=job['account_id']
         await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'running'}})
         prompt=await chat_prompt(job)
-        if AI_BACKEND == 'openrouter':
-            session_jobs=[row['id'] async for row in db.jobs.find(
-                {'account_id':account_id,'coffee_id':job.get('coffee_id')},{'_id':0,'id':1}
-            ).sort('_id',-1).limit(4)]
-            legacy_message_ids=[f'{job_id}-{role}' for job_id in session_jobs for role in ('user','assistant')]
-            history=[clean(row) async for row in db.messages.find(
-                {'account_id':account_id,'id':{'$ne':job['id']+'-user'},'$or':[
-                    {'coffee_id':job.get('coffee_id')},{'id':{'$in':legacy_message_ids}}
-                ]}
-            ).sort('_id',-1).limit(2)]
-            result=await openrouter_reply(prompt,list(reversed(history)))
-            if result.actions:
-                # A write may succeed before its receipt is recorded. Mark the
-                # job before applying the action so retries never duplicate a
-                # potentially partial canonical write.
-                await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'action_attempted':True}})
-            try:
-                for action in result.actions:
-                    await apply_inference_action(job,action)
-            except Exception as exc:
-                # Log which action was rejected so prod failures are diagnosable
-                # from logs alone. Persist the same safe type/id/validation text
-                # on the job so the cause survives a replaced container too.
-                # Only record kind/id plus the validation error — never the
-                # payload, which carries user taste notes.
-                logger.warning('Rejected OpenRouter action for chat job %s (%s kind=%s id=%s error=%s)',job['id'],type(exc).__name__,action.get('kind'),action.get('id'),str(exc)[:200])
-                detail=f'{type(exc).__name__} kind={action.get("kind")} id={action.get("id")}: {str(exc)[:200]}'
-                await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'failed','error':CHAT_ACTION_REJECTED,'error_code':'action_rejected','error_detail':detail,'failed_at':now()}})
-                return
-            reply=result.text
-        else:
-            session_key=f'{account_id}:chat:{job.get("coffee_id") or "all"}'
-            pointer=await db.meta.find_one({'_id':session_key}) or {}
-            async with httpx.AsyncClient(timeout=300) as http:
-                response=await http.post(os.getenv('AI_URL','http://127.0.0.1:8102')+'/message',content=prompt,headers={'Content-Type':'text/plain','X-Agent-Session-Id':pointer.get('session_id',''),'X-Coffee-Token':job['token']})
-                response.raise_for_status()
-            await db.meta.update_one({'_id':session_key},{'$set':{'session_id':response.headers['x-agent-session-id']}},upsert=True)
-            reply=response.text.strip()
+        session_jobs=[row['id'] async for row in db.jobs.find(
+            {'account_id':account_id,'coffee_id':job.get('coffee_id')},{'_id':0,'id':1}
+        ).sort('_id',-1).limit(4)]
+        legacy_message_ids=[f'{job_id}-{role}' for job_id in session_jobs for role in ('user','assistant')]
+        history=[clean(row) async for row in db.messages.find(
+            {'account_id':account_id,'id':{'$ne':job['id']+'-user'},'$or':[
+                {'coffee_id':job.get('coffee_id')},{'id':{'$in':legacy_message_ids}}
+            ]}
+        ).sort('_id',-1).limit(2)]
+        result=await openrouter_reply(prompt,list(reversed(history)))
+        if result.actions:
+            # A write may succeed before its receipt is recorded. Mark the
+            # job before applying the action so retries never duplicate a
+            # potentially partial canonical write.
+            await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'action_attempted':True}})
+        try:
+            for action in result.actions:
+                await apply_inference_action(job,action)
+        except Exception as exc:
+            # Log which action was rejected so prod failures are diagnosable
+            # from logs alone. Persist the same safe type/id/validation text
+            # on the job so the cause survives a replaced container too.
+            # Only record kind/id plus the validation error — never the
+            # payload, which carries user taste notes.
+            logger.warning('Rejected OpenRouter action for chat job %s (%s kind=%s id=%s error=%s)',job['id'],type(exc).__name__,action.get('kind'),action.get('id'),str(exc)[:200])
+            detail=f'{type(exc).__name__} kind={action.get("kind")} id={action.get("id")}: {str(exc)[:200]}'
+            await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'failed','error':CHAT_ACTION_REJECTED,'error_code':'action_rejected','error_detail':detail,'failed_at':now()}})
+            return
+        reply=result.text
         await db.messages.update_one({'account_id':account_id,'id':job['id']+'-assistant'},{'$setOnInsert':{'account_id':account_id,'id':job['id']+'-assistant','coffee_id':job.get('coffee_id'),'role':'assistant','text':reply}},upsert=True)
         await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'complete'}})
     except (OpenRouterConfigError, OpenRouterError) as exc:
@@ -669,7 +652,7 @@ async def run_chat(job):
         await db.jobs.update_one({'account_id':job['account_id'],'id':job['id']},{'$set':failed})
     except Exception as exc:
         logger.warning('Chat job %s failed (%s): %s',job['id'],type(exc).__name__,str(exc)[:200])
-        error='Coffee chat could not apply that change. Your existing records are safe.' if AI_BACKEND == 'openrouter' else str(exc)[:500]
+        error='Coffee chat could not apply that change. Your existing records are safe.'
         await db.jobs.update_one({'account_id':job['account_id'],'id':job['id']},{'$set':{'status':'failed','error':error,'error_code':'chat_apply_failed','failed_at':now()}})
 
 async def apply_inference_action(job,action):
@@ -730,33 +713,3 @@ async def job_status(key:str,request:Request):
     job=await db.jobs.find_one({'account_id':request.state.account_id,'id':key})
     if not job:raise HTTPException(404,'Chat job not found')
     return clean(job)
-
-async def authorize(token):
-    job=await db.jobs.find_one({'token':token,'status':'running'})
-    if not job:raise HTTPException(403,'Expired or invalid chat capability')
-    return job
-
-@app.get('/agent/context')
-async def agent_context(x_coffee_token:str=Header(),auth_only:bool=False):
-    if not AI_ENABLED or AI_BACKEND != 'codex': raise HTTPException(404,'The private agent gateway is not enabled in this profile.')
-    job=await authorize(x_coffee_token)
-    if auth_only:return {"authorized":True}
-    snapshot=await state_for(job['account_id'])
-    source=ROOT/'data/source-logbook.md'
-    return {'coffees':snapshot['coffees'],'shots':snapshot['shots'],'original_logbook':source.read_text() if source.exists() else ''}
-
-class AgentWrite(BaseModel):
-    kind:Literal['shot','coffee']
-    id:str|None=None
-    data:dict
-@app.post('/agent/save')
-async def agent_save(body:AgentWrite,x_coffee_token:str=Header()):
-    if not AI_ENABLED or AI_BACKEND != 'codex': raise HTTPException(404,'The private agent gateway is not enabled in this profile.')
-    job=await authorize(x_coffee_token)
-    if body.kind=='shot':
-        data={**body.data}
-        if not body.id and not data.get('date'): data['date']=job.get('shot_date',now()[:10])
-        row=await write_shot(body.id or str(uuid.uuid4()),Shot(**data),job['account_id'])
-    else:row=await save(db.coffees,body.id or str(uuid.uuid4()),Coffee(**body.data),job['account_id'])
-    await db.jobs.update_one({'account_id':job['account_id'],'id':job['id']},{'$push':{'receipts':{'kind':body.kind,'record':row}}})
-    return row

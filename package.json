@@ -6,6 +6,6 @@
     "build": "npm --prefix coffee_app run build",
     "test": "npm run test:api && npm run test:frontend",
     "test:api": "coffee_api/.venv/bin/python -m unittest discover -s tests",
-    "test:frontend": "node tests/test_new_shot.cjs && node tests/test_roast_window.cjs && node tests/test_install_app.cjs && node tests/test_chat_retry.cjs && node tests/test_chat_render.cjs && node --test tests/test_chat_latency.mjs"
+    "test:frontend": "node tests/test_new_shot.cjs && node tests/test_roast_window.cjs && node tests/test_install_app.cjs && node tests/test_chat_retry.cjs && node tests/test_chat_render.cjs"
   }
 }

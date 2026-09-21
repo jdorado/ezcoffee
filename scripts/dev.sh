@@ -17,7 +17,7 @@ if [[ -z "${MONGO_URL:-}" ]]; then
   mongod --dbpath "$ROOT_DIR/data/mongo" --bind_ip 127.0.0.1 --port 27019 --logpath "$ROOT_DIR/data/mongo.log" &
   pids+=("$!")
 fi
-for port in 8001 5176 8102; do
+for port in 8001 5176; do
   stale="$(lsof -ti :"$port" 2>/dev/null || true)"
   if [[ -n "$stale" ]]; then
     echo "Releasing port $port from stale process(es): $stale" >&2
@@ -33,8 +33,6 @@ for port in 8001 5176 8102; do
   fi
 done
 (cd coffee_api && .venv/bin/python -m uvicorn src.main:app --host 127.0.0.1 --port 8001) &
-pids+=("$!")
-node coffee_api/coffee_ai/server.mjs &
 pids+=("$!")
 npm --prefix coffee_app run dev &
 pids+=("$!")

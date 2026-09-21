@@ -1,25 +1,23 @@
 # Personal profile
 
-The personal profile is a migration bridge for the maintainer's existing
-owner-authenticated AI deployment without making any machine, account,
-credential, or live URL part of the public defaults. The original private
-repository remains authoritative until a capability is deliberately migrated
-and accepted here.
+The personal profile is the maintainer's private, owner-authenticated
+deployment. It shares the hosted AI backend (OpenRouter) and keeps every
+machine, account, credential, and live URL out of the public defaults. The
+original private repository remains authoritative until a capability is
+deliberately migrated and accepted here.
 
 It is not required for self-hosting and is not a supported hosted AI product.
-The AI image must already contain a working Codex CLI installation.
 
 ## Runtime configuration
 
 1. Copy `profiles/personal.env.example` to an ignored file on the target host.
-2. Fill in the private API environment path, credential seed directory, image,
-   port, and volume names.
-3. Keep the referenced API environment and credential seed outside this repo.
+2. Fill in the private API environment path, port, and database name.
+3. Keep the referenced API environment file outside this repo.
 
-The API environment must provide `MONGO_URL` and Privy credentials plus
-an exact `COFFEE_OWNER_SUB`. The browser build separately needs `APP_MODE=personal`,
-`CHAT_ENABLED=true`, `PRIVY_APP_ID`, `API_BASE_URL`, and any desired equipment
-defaults.
+The API environment must provide `MONGO_URL`, `OPENROUTER_API_KEY`, and Privy
+credentials plus an exact `COFFEE_OWNER_SUB`. The browser build separately needs
+`APP_MODE=personal`, `CHAT_ENABLED=true`, `PRIVY_APP_ID`, `API_BASE_URL`, and any
+desired equipment defaults.
 
 For local QA, those values may live together in the ignored root `.env` file.
 Both the browser and API must use the same `PRIVY_APP_ID`; the secret is read by

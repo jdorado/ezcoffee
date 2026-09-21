@@ -8,7 +8,5 @@ __pycache__/
 profiles/*.env
 data/*
 !data/.gitkeep
-coffee_api/coffee_ai/workspace/*
-!coffee_api/coffee_ai/workspace/AGENTS.md
 
 .vercel/

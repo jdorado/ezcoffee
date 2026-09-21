@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 os.environ['APP_MODE']='personal'
 os.environ['COFFEE_AI_ENABLED']='true'
-os.environ['COFFEE_AI_BACKEND']='codex'
+os.environ['OPENROUTER_API_KEY']='test-key'
 os.environ['COFFEE_REQUIRE_AUTH']='true'
 os.environ['COFFEE_OWNER_SUB']='test-owner'
 os.environ['PRIVY_APP_ID']='test-app'
@@ -208,21 +208,6 @@ class CoffeeContract(unittest.TestCase):
   self.assertLess(ids.index(newer['id']),ids.index(older['id']))
   self.assertLess(ids.index(newer['id']),ids.index('import-5'))
   self.assertLess(ids.index('import-5'),ids.index(older['id']))
- def test_gateway_returns_and_records_canonical_receipt(self):
-  from pymongo import MongoClient
-  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
-  database.jobs.insert_one({'account_id':'test-owner','id':'gateway-test','token':'test-only','status':'running','shot_date':'2026-09-08','receipts':[]})
-  response=self.http.post('/agent/save',headers={'X-Coffee-Token':'test-only'},json={'kind':'shot','data':{'coffee_id':'coffee-1','dose':14,'taste':'test only','outcome':'choked','target_yield_g':30}})
-  self.assertEqual(response.status_code,200)
-  row=response.json()
-  receipt=database.jobs.find_one({'account_id':'test-owner','id':'gateway-test'})['receipts'][0]
-  self.assertEqual(receipt['record'],row)
-  self.assertEqual(row['outcome'],'choked')
-  self.assertEqual(row['target_yield_g'],30)
-  self.assertEqual(row['date'],'2026-09-08')
-  self.assertEqual(database.shots.find_one({'account_id':'test-owner','id':row['id']})['taste'],'test only')
-  database.jobs.update_one({'account_id':'test-owner','id':'gateway-test'},{'$set':{'status':'complete'}})
-  database.client.close()
  def test_production_rejects_anonymous_and_other_accounts(self):
   from unittest.mock import patch, AsyncMock
   from types import SimpleNamespace
@@ -248,7 +233,7 @@ class CoffeeContract(unittest.TestCase):
    {'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-1','role':'user','text':job['message']},
   ])
   reply=AsyncMock(return_value=OpenRouterReply(text='Try one small grind adjustment.',actions=[]))
-  with patch('src.main.AI_BACKEND','openrouter'),patch('src.main.openrouter_reply',reply):
+  with patch('src.main.openrouter_reply',reply):
    self.http.portal.call(run_chat,job)
   prompt,history=reply.await_args.args
   context=json.loads(prompt)
@@ -275,7 +260,7 @@ class CoffeeContract(unittest.TestCase):
   database.jobs.insert_one(job)
   database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-1','role':'user','text':job['message']})
   reply=AsyncMock(return_value=OpenRouterReply(text='Saved.',actions=[{'kind':'shot','id':None,'data':{'coffee_id':'missing-coffee'}}]))
-  with patch('src.main.AI_BACKEND','openrouter'),patch('src.main.openrouter_reply',reply):
+  with patch('src.main.openrouter_reply',reply):
    self.http.portal.call(run_chat,job)
   failed=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
   self.assertEqual(failed['status'],'failed')
@@ -302,7 +287,7 @@ class CoffeeContract(unittest.TestCase):
   database.jobs.insert_one(job)
   database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-1','role':'user','text':job['message']})
   reply=AsyncMock(side_effect=OpenRouterError('OpenRouter returned invalid structured output.',code='invalid_structured_output',provider='Parasail',finish_reason='stop',stage='parse'))
-  with patch('src.main.AI_BACKEND','openrouter'),patch('src.main.openrouter_reply',reply):
+  with patch('src.main.openrouter_reply',reply):
    self.http.portal.call(run_chat,job)
   failed=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
   self.assertEqual(failed['status'],'failed')
@@ -472,9 +457,6 @@ class CoffeeContract(unittest.TestCase):
    state_a=self.http.get('/state',headers=headers_a).json()
    self.assertEqual(next(row for row in state_a['coffees'] if row['id']==coffee['id'])['name'],'Only A')
    self.assertTrue(any(row['id']==shot['id'] for row in state_a['shots']))
- def test_gateway_requires_live_job(self):
-  self.assertEqual(self.http.get('/agent/context',headers={'X-Coffee-Token':'bad'}).status_code,403)
-  self.assertEqual(self.http.post('/agent/save',headers={'X-Coffee-Token':'bad'},json={'kind':'coffee','data':{'name':'blocked'}}).status_code,403)
  def test_selfhost_profile_exposes_shots_without_chat(self):
   from unittest.mock import patch
   with patch('src.main.AI_ENABLED',False),patch('src.main.REQUIRE_AUTH',False):
@@ -483,7 +465,6 @@ class CoffeeContract(unittest.TestCase):
    self.assertIsNone(state['active_job'])
    self.assertEqual(state['capabilities'],{'chat':False,'auth':False,'app_mode':'personal'})
    self.assertEqual(self.http.post('/chat',json={'id':'disabled','message':'test'}).status_code,404)
-   self.assertEqual(self.http.get('/agent/context',headers={'X-Coffee-Token':'bad'}).status_code,404)
  def test_delete_revision_and_coffee_history(self):
   coffee=self.http.post('/coffees',json={'name':'Deletion test'}).json()
   shot=self.http.post('/shots',json={'coffee_id':coffee['id'],'dose':14}).json()

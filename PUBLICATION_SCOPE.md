@@ -8,8 +8,8 @@ Publish the app for coffee aficionados in two ways:
 2. **Hosted:** sign up and use the complete product for free, including the
    coffee assistant. All registered users receive the same features.
 
-My personal app stays as it is today: private Mongo data, owner login, and my
-own Codex CLI. It does not need public signup or billing.
+My personal app stays as it is today: private Mongo data, owner login, and a
+private AI key. It does not need public signup or billing.
 
 ## Keep it simple
 
@@ -19,8 +19,7 @@ own Codex CLI. It does not need public signup or billing.
   free-tier limits.
 - Keep one codebase with `APP_MODE=selfhost|hosted|personal`.
 - Use one hosted AI provider, configured by server-side URL, model, and API key.
-- Do not share my personal Codex CLI, session, credentials, or data with public
-  users.
+- Do not share my personal AI credentials or data with public users.
 
 Vercel and Mongo can start free. The domain and AI usage are operating costs,
 but there is no billing or per-user feature gate for now.

@@ -12,8 +12,9 @@ details or secrets.
 The hosted profile requires a valid Privy access token on every user endpoint.
 Mongo records are tagged with the verified Privy subject and every read and
 mutation includes that account boundary. The API is bound to loopback on the
-production VM and exposed only through HTTPS. Hosted AI is deliberately disabled;
-the maintainer's private Codex credentials and sessions are never deployed.
+production VM and exposed only through HTTPS. Hosted AI keys live only in the
+server runtime environment; the maintainer's private deployment credentials are
+never deployed with the public service.
 
 Production secrets belong in Vercel, GitHub Actions, or a mode-0600 runtime file
 outside the VM checkout. Rotate a credential immediately if it appears in an

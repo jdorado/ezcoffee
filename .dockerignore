@@ -5,5 +5,3 @@
 **/__pycache__
 **/.env*
 data
-coffee_api/coffee_ai/workspace/*
-!coffee_api/coffee_ai/workspace/AGENTS.md
