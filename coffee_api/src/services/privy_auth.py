@@ -44,22 +44,64 @@ class PrivyUserProfile:
     created_at: int | None
 
 
+def _current_app_id() -> str | None:
+    return os.getenv("PRIVY_APP_ID") or os.getenv("P1") or PRIVY_APP_ID
+
+
+def _current_app_secret() -> str | None:
+    return os.getenv("PRIVY_APP_SECRET") or os.getenv("P2") or PRIVY_APP_SECRET
+
+
+def _current_api_url() -> str:
+    return (os.getenv("PRIVY_API_URL") or PRIVY_API_URL or "https://auth.privy.io").rstrip("/")
+
+
+def _current_issuer() -> str:
+    return os.getenv("PRIVY_ISSUER") or PRIVY_ISSUER or "privy.io"
+
+
+def _verification_key_override() -> str | None:
+    raw = os.getenv("PRIVY_VERIFICATION_KEY") or os.getenv("PRIVY_JWT_VERIFICATION_KEY") or ""
+    raw = raw.strip()
+    if not raw:
+        return None
+    # Allow dotenv-escaped PEMs.
+    if "\\n" in raw:
+        raw = raw.replace("\\n", "\n")
+    return raw
+
+
+def _jwks_url(app_id: str) -> str:
+    return f"{_current_api_url()}/api/v1/apps/{app_id}/jwks.json"
+
+
+_jwks_cache: dict[str, Any] = {"keys": None, "expires_at": 0.0}
+
+
+def _clear_key_caches() -> None:
+    _verification_key_cache["key"] = None
+    _verification_key_cache["expires_at"] = 0.0
+    _jwks_cache["keys"] = None
+    _jwks_cache["expires_at"] = 0.0
+
+
 def _require_privy_config() -> None:
-    if not PRIVY_APP_ID or not PRIVY_APP_SECRET:
+    if not _current_app_id() or not _current_app_secret():
         raise PrivyConfigError("Privy app configuration is missing.")
 
 
 def _get_auth_headers() -> dict[str, str]:
     _require_privy_config()
     return {
-        "Authorization": f"Bearer {PRIVY_APP_SECRET}",
-        "privy-app-id": PRIVY_APP_ID,
+        "Authorization": f"Bearer {_current_app_secret()}",
+        "privy-app-id": _current_app_id() or "",
     }
 
 
 async def _fetch_verification_key() -> str:
     _require_privy_config()
-    url = f"{PRIVY_API_URL}/api/v1/apps/{PRIVY_APP_ID}"
+    app_id = _current_app_id() or ""
+    url = f"{_current_api_url()}/api/v1/apps/{app_id}"
     async with httpx.AsyncClient(timeout=8.0) as client:
         response = await client.get(url, headers=_get_auth_headers())
         response.raise_for_status()
@@ -69,6 +111,53 @@ async def _fetch_verification_key() -> str:
     if not isinstance(verification_key, str) or not verification_key.strip():
         raise PrivyAuthError("Privy verification key missing from response.")
     return verification_key
+
+
+async def _fetch_jwks() -> dict[str, Any]:
+    app_id = _current_app_id()
+    if not app_id:
+        raise PrivyConfigError("Privy app configuration is missing.")
+    url = _jwks_url(app_id)
+    # The JWKS document holds public keys only, so no secret is sent.
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("keys"), list):
+        raise PrivyAuthError("Privy key set missing from response.")
+    return payload
+
+
+async def _get_jwks() -> dict[str, Any]:
+    now = time.time()
+    cached = _jwks_cache.get("keys")
+    if cached and _jwks_cache.get("expires_at", 0.0) > now:
+        return cached
+    payload = await _fetch_jwks()
+    _jwks_cache["keys"] = payload
+    _jwks_cache["expires_at"] = now + VERIFICATION_KEY_TTL_SEC
+    return payload
+
+
+def _signing_keys_from_jwks(payload: dict[str, Any], token: str) -> list[Any]:
+    try:
+        kid = jwt.get_unverified_header(token).get("kid")
+    except jwt.PyJWTError:
+        kid = None
+    try:
+        key_set = jwt.PyJWKSet.from_dict(payload)
+    except jwt.PyJWTError as exc:
+        raise PrivyAuthError("Invalid Privy key set.") from exc
+    keys = list(key_set)
+    if not keys:
+        raise PrivyAuthError("Invalid Privy key set.")
+    if kid:
+        matched = [entry for entry in keys if entry.key_id == kid]
+        if matched:
+            return [matched[0].key]
+    if len(keys) == 1:
+        return [keys[0].key]
+    return [entry.key for entry in keys]
 
 
 async def get_verification_key() -> str:
@@ -125,12 +214,14 @@ async def get_privy_user_profile(user_id: str) -> PrivyUserProfile:
         return cached[0]
 
     _require_privy_config()
+    app_id = _current_app_id() or ""
+    secret = _current_app_secret() or ""
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             response = await client.get(
                 f"{PRIVY_USER_API_URL}/users/{quote(user_id, safe='')}",
-                auth=(PRIVY_APP_ID, PRIVY_APP_SECRET),
-                headers={"privy-app-id": PRIVY_APP_ID},
+                auth=(app_id, secret),
+                headers={"privy-app-id": app_id},
             )
             response.raise_for_status()
             payload = response.json()
@@ -150,24 +241,31 @@ async def get_privy_user_profile(user_id: str) -> PrivyUserProfile:
     return profile
 
 
-async def verify_privy_access_token(token: str) -> PrivyAuthContext:
-    if not token:
-        raise PrivyAuthError("Missing token.")
-
-    verification_key = await get_verification_key()
-
+def _decode_with_key(token: str, key: Any, app_id: str, issuer: str) -> dict[str, Any]:
     try:
         payload = jwt.decode(
             token,
-            verification_key,
+            key,
             algorithms=["ES256"],
-            audience=PRIVY_APP_ID,
-            issuer=PRIVY_ISSUER,
+            audience=app_id,
+            issuer=issuer,
             options={"require": ["exp", "iat", "sub"]},
         )
+    except jwt.ExpiredSignatureError as exc:
+        raise PrivyAuthError("Token expired.") from exc
+    except (jwt.InvalidAudienceError, jwt.InvalidIssuerError) as exc:
+        raise PrivyAuthError("Invalid token.") from exc
+    except jwt.InvalidSignatureError as exc:
+        # Key rotation looks exactly like this; caller may refresh and retry.
+        raise PrivyAuthError("Invalid signature.") from exc
     except jwt.PyJWTError as exc:
         raise PrivyAuthError("Invalid token.") from exc
+    if not isinstance(payload, dict):
+        raise PrivyAuthError("Invalid token.")
+    return payload
 
+
+async def _context_from_payload(payload: dict[str, Any]) -> PrivyAuthContext:
     user_id = payload.get("sub")
     if not isinstance(user_id, str) or not user_id.strip():
         raise PrivyAuthError("Invalid token subject.")
@@ -183,3 +281,67 @@ async def verify_privy_access_token(token: str) -> PrivyAuthContext:
         created_at=profile.created_at,
         session_id=session_id,
     )
+
+
+async def verify_privy_access_token(token: str) -> PrivyAuthContext:
+    if not token or not token.strip():
+        raise PrivyAuthError("Missing token.")
+
+    app_id = _current_app_id()
+    if not app_id:
+        raise PrivyConfigError("Privy app configuration is missing.")
+    issuer = _current_issuer()
+    cleaned = token.strip()
+
+    override = _verification_key_override()
+    if override:
+        return await _context_from_payload(_decode_with_key(cleaned, override, app_id, issuer))
+
+    # Preferred path: public JWKS, no secret required. Refresh once when the
+    # cached key set no longer verifies (key rotation).
+    for attempt in (0, 1):
+        try:
+            jwks = await _get_jwks()
+        except httpx.HTTPError:
+            break
+        except PrivyAuthError:
+            break
+        candidates = _signing_keys_from_jwks(jwks, cleaned)
+        signature_failed = False
+        for key in candidates:
+            try:
+                return await _context_from_payload(_decode_with_key(cleaned, key, app_id, issuer))
+            except PrivyAuthError as exc:
+                if str(exc) in ("Token expired.", "Invalid token.", "Invalid token subject."):
+                    raise
+                # "Invalid signature." (or key-set problems) may heal after
+                # a refresh; other messages fall through to legacy fallback.
+                signature_failed = True
+                continue
+        if not signature_failed:
+            break
+        _jwks_cache["keys"] = None
+        _jwks_cache["expires_at"] = 0.0
+        if attempt == 1:
+            break
+
+    # Legacy fallback: PEM verification key (requires the app secret).
+    try:
+        verification_key = await get_verification_key()
+    except httpx.HTTPError as exc:
+        raise PrivyAuthError("Could not reach Privy.") from exc
+    try:
+        payload = _decode_with_key(cleaned, verification_key, app_id, issuer)
+    except PrivyAuthError as exc:
+        # A rotated PEM stays cached for up to an hour; retry once fresh
+        # before giving up, so relogin is not stuck behind stale cache.
+        if str(exc) == "Invalid signature.":
+            _clear_key_caches()
+            try:
+                verification_key = await get_verification_key()
+            except httpx.HTTPError as retry_exc:
+                raise PrivyAuthError("Could not reach Privy.") from retry_exc
+            payload = _decode_with_key(cleaned, verification_key, app_id, issuer)
+        else:
+            raise
+    return await _context_from_payload(payload)
