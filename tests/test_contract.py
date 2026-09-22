@@ -501,6 +501,31 @@ class CoffeeContract(unittest.TestCase):
   receipts=database.jobs.find_one({'account_id':'test-owner','id':job['id']})['receipts']
   self.assertEqual([receipt['kind'] for receipt in receipts],['coffee','coffee','shot','shot'])
   database.client.close()
+ def test_openrouter_action_repair_tolerates_model_slips(self):
+  from fastapi import HTTPException
+  from pymongo import MongoClient
+  from src.main import apply_inference_action
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  job={'account_id':'test-owner','id':'openrouter-repair','shot_date':'2026-09-15','coffee_id':'coffee-1'}
+  database.jobs.insert_one({**job,'status':'running','receipts':[]})
+  row=self.http.portal.call(apply_inference_action,job,{'kind':'shot','id':None,'data':{'coffee_id':'coffee-1','dose':14,'taste':'repair base'}})
+  # Missing revision is filled from the current record instead of 409.
+  repaired=self.http.portal.call(apply_inference_action,job,{'kind':'shot','id':row['id'],'data':{'taste':'repaired without revision'}})
+  self.assertEqual(repaired['taste'],'repaired without revision')
+  self.assertEqual(repaired['dose'],14)
+  # String revisions coerce; unknown fields (ratio, id) are dropped, not rejected.
+  coerced=self.http.portal.call(apply_inference_action,job,{'kind':'shot','id':row['id'],'data':{'revision':str(repaired['revision']),'taste':'repaired types','ratio':'1:2.00','id':'ignored'}})
+  self.assertEqual(coerced['taste'],'repaired types')
+  # An explicitly wrong revision still rejects stale edits.
+  with self.assertRaises(HTTPException):
+   self.http.portal.call(apply_inference_action,job,{'kind':'shot','id':row['id'],'data':{'revision':0,'taste':'stale'}})
+  # Creates reset a stray revision, fill coffee_id from the job, drop an
+  # inverted target max, and coerce "5"/5.0 ratings.
+  created=self.http.portal.call(apply_inference_action,job,{'kind':'shot','id':None,'data':{'revision':1,'dose':15,'target_yield_g':30,'target_yield_max_g':20,'rating':'5'}})
+  self.assertEqual((created['coffee_id'],created['revision'],created['rating']),('coffee-1',1,5))
+  self.assertIsNone(created['target_yield_max_g'])
+  self.assertEqual(created['target_yield_g'],30)
+  database.client.close()
  def test_hosted_accounts_are_isolated(self):
   from unittest.mock import patch
   from types import SimpleNamespace

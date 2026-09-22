@@ -105,6 +105,15 @@ class OpenRouterContract(unittest.TestCase):
     def test_plan_sync_is_required_even_when_the_recipe_matches(self):
         self.assertIn('even when the recipe matches the plan', SYSTEM_PROMPT)
 
+    def test_tool_guidance_names_revision_example_and_read_only_fields(self):
+        self.assertIn('{"revision": 3', SYSTEM_PROMPT)
+        self.assertIn('never write ratio', SYSTEM_PROMPT.lower())
+        self.assertIn('never put the record id inside data_json', SYSTEM_PROMPT.lower())
+        schema = build_payload('{"request":"help"}', [], self.settings())["response_format"]["json_schema"]["schema"]
+        description = schema["properties"]["actions"]["items"]["properties"]["data_json"]["description"]
+        self.assertIn('revision', description)
+        self.assertIn('ratio', description)
+
     def test_enabled_configuration_requires_a_server_key(self):
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False):
             with self.assertRaises(OpenRouterConfigError):
