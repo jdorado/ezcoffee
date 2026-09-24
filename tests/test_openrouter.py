@@ -31,6 +31,14 @@ class OpenRouterContract(unittest.TestCase):
         self.assertIn('never labels', SYSTEM_PROMPT)
         self.assertIn('Grind: **5.0**', SYSTEM_PROMPT)
 
+    def test_structured_bean_details_guide_dial_in(self):
+        self.assertIn('process', SYSTEM_PROMPT)
+        self.assertIn('roast_level', SYSTEM_PROMPT)
+        self.assertIn('single_origin', SYSTEM_PROMPT)
+        self.assertIn('decaf', SYSTEM_PROMPT)
+        self.assertIn('Never invent a bean detail', SYSTEM_PROMPT)
+        self.assertIn('similar roast age, process, and roast level', SYSTEM_PROMPT)
+
     def test_cross_coffee_questions_use_the_bounded_overview(self):
         self.assertIn('current_records.coffee_overview', SYSTEM_PROMPT)
         self.assertIn('current_records.coffee_catalog', SYSTEM_PROMPT)

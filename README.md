@@ -59,7 +59,8 @@ fields appear and the order in which you record them.
 
 ### Coffee library
 
-- Coffee name, roaster or brand, roast date, origin, process, and notes.
+- Coffee name, roaster or brand, roast date, origin, variety, process, roast
+  level, single origin or blend, decaf, and notes.
 - Brew history stays attached when a finished bag is archived.
 - Canister markers make several coffees easy to tell apart on the bar.
 

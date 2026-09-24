@@ -165,6 +165,40 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(self.http.post('/shots',json={'coffee_id':'coffee-1','dose':-1}).status_code,422)
   self.assertEqual(self.http.post('/shots',json={'coffee_id':'coffee-1','dose':123}).status_code,200)
   self.assertEqual(self.http.post('/shots',json={'coffee_id':'coffee-1','dose':1001}).status_code,422)
+ def test_structured_bean_details_round_trip_and_validate(self):
+  coffee=self.http.post('/coffees',json={'name':'Structured bean','origin':'Ethiopia, Yirgacheffe','variety':'Heirloom','process':'washed','roast_level':'light','single_origin':'single_origin','decaf':True}).json()
+  self.assertEqual((coffee['origin'],coffee['variety'],coffee['process'],coffee['roast_level'],coffee['single_origin'],coffee['decaf']),('Ethiopia, Yirgacheffe','Heirloom','washed','light','single_origin',True))
+  saved=next(c for c in self.http.get('/state').json()['coffees'] if c['id']==coffee['id'])
+  self.assertEqual(saved['process'],'washed')
+  updated=self.http.put('/coffees/'+coffee['id'],json={**coffee,'revision':coffee['revision'],'process':'natural','roast_level':'dark'}).json()
+  self.assertEqual((updated['process'],updated['roast_level']),('natural','dark'))
+  plain=self.http.post('/coffees',json={'name':'Plain bean'}).json()
+  self.assertEqual((plain['origin'],plain['variety'],plain['process'],plain['roast_level'],plain['single_origin'],plain['decaf']),('','','','','',False))
+  for field,value in [('process','fermented'),('roast_level','extra_dark'),('single_origin','multi')]:
+   self.assertEqual(self.http.post('/coffees',json={'name':'Bad bean',field:value}).status_code,422)
+  self.http.delete('/coffees/'+coffee['id']+'?revision='+str(updated['revision']))
+  self.http.delete('/coffees/'+plain['id']+'?revision=1')
+ def test_chat_context_carries_structured_bean_details(self):
+  import json
+  from src.main import chat_prompt
+  coffee=self.http.post('/coffees',json={'name':'Bean context','origin':'Colombia, Huila','variety':'Caturra','process':'natural','roast_level':'medium_dark','single_origin':'blend','decaf':False}).json()
+  other=self.http.post('/coffees',json={'name':'Washed reference','origin':'Kenya','process':'washed','roast_level':'light'}).json()
+  self.http.post('/shots',json={'coffee_id':other['id'],'date':'2026-09-04','dose':16,'grind':'4.5','yield_g':32,'outcome':'good','rating':5,'reference':True})
+  payload=json.loads(self.http.portal.call(chat_prompt,{'account_id':'test-owner','id':'bean-context','message':'What should I expect from this coffee?','coffee_id':coffee['id']}))
+  records=payload['current_records']
+  catalog=next(c for c in records['coffee_catalog'] if c['id']==coffee['id'])
+  self.assertEqual((catalog['origin'],catalog['variety'],catalog['process'],catalog['roast_level'],catalog['single_origin'],catalog['decaf']),('Colombia, Huila','Caturra','natural','medium_dark','blend',False))
+  self.assertEqual(records['selected_coffee']['process'],'natural')
+  overview=next(c for c in records['coffee_overview'] if c['id']==coffee['id'])
+  self.assertEqual((overview['origin'],overview['process'],overview['roast_level']),('Colombia, Huila','natural','medium_dark'))
+  reference=next(r for r in records['reference_shots'] if r['coffee']=='Washed reference')
+  self.assertEqual((reference['coffee_origin'],reference['coffee_process'],reference['coffee_roast_level'],reference['coffee_decaf']),('Kenya','washed','light',False))
+  guidance=payload['action_guidance']
+  for field in ['origin','variety','process','roast_level','single_origin','decaf']:
+   self.assertIn(field,guidance['coffee_fields'])
+  self.assertEqual(guidance['coffee_field_values']['process'][0],'washed')
+  self.http.delete('/coffees/'+coffee['id']+'?revision=1')
+  self.http.delete('/coffees/'+other['id']+'?revision=1')
  def test_profile_and_pour_over_fields_are_revisioned(self):
   default=self.http.get('/profile').json()
   self.assertEqual(default['brew_method'],'espresso')
