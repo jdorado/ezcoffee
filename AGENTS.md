@@ -15,8 +15,9 @@ in the personal profile.
 Preserve the minimalist black-and-white UI and dense shot rows. Avoid adding
 dashboards or new product areas without an explicit scope change.
 
-For frontend changes, run the focused frontend checks and
-`npm --prefix coffee_app run build`. For API changes, run `npm test` with an
-isolated Mongo instance. Do not publish, change repository visibility, deploy,
-or push to a deployment branch until the maintainer has completed QA and
-explicitly approved publication.
+Work directly on `main` for this repo. Keep testing minimal and proportional to
+the change: run a relevant focused check when useful and build the frontend for
+frontend changes. API tests must use an isolated Mongo instance. When the
+maintainer says "push," push `main` to `origin`; this triggers the existing
+deployment workflow. Do not push before that request, or separately publish,
+change repository visibility, or deploy without explicit authorization.
