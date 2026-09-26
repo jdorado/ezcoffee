@@ -28,7 +28,33 @@
 .paper-filter { display:flex; gap:3px; margin:0; }
 .paper-filter button { border:1px solid var(--line); border-radius:4px; padding:8px 14px; min-height:40px; font-size:11px; }
 .paper-filter button[aria-pressed=true] { background:var(--ink); color:white; border-color:var(--ink); }
-.coffee-picker { position:relative; width:max-content; max-width:100%; }.coffee-picker summary { display:flex; align-items:center; gap:8px; padding:0; list-style:none; font-size:16px; font-weight:600; letter-spacing:-.3px; cursor:pointer; }.coffee-picker summary::-webkit-details-marker { display:none; }.picker-chevron { color:#777; font-size:15px; line-height:1; }.coffee-picker[open] .picker-chevron { transform:rotate(180deg); }.coffee-options { position:absolute; z-index:2; top:calc(100% + 8px); left:0; min-width:250px; max-width:min(360px,calc(100vw - 60px)); padding:5px; background:#fff; border:1px solid #cfcfcf; border-radius:5px; box-shadow:0 8px 24px #1a1a1a20; }.coffee-options button { display:flex; align-items:center; gap:9px; width:100%; padding:9px 10px; border-radius:3px; text-align:left; font-size:12px; }.coffee-option-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.coffee-options button:hover,.coffee-options button[aria-pressed=true] { background:#efefef; }.archived-coffees { margin-top:5px; padding-top:5px; border-top:1px solid #e4e4e4; }.archived-coffees>summary { padding:7px 10px; cursor:pointer; font-size:10px; color:#777; }.archived-coffees>div { display:flex; align-items:center; gap:4px; }.archived-coffees>div>button:first-child { flex:1; }.restore-coffee { padding:7px 9px!important; width:auto!important; color:#555; font-size:10px!important; }.archived-badge { padding:2px 5px; border:1px solid #aaa; border-radius:3px; font-size:8px; }.roast-window { display:inline-flex; align-items:center; gap:5px; color:#777; font-size:9px; white-space:nowrap; }.roast-track { display:inline-flex; gap:2px; }.roast-track i { display:block; width:8px; height:4px; border-radius:2px; background:#ddd; }.roast-window.resting .roast-track i:first-child,.roast-window.optimal .roast-track i:nth-child(2),.roast-window.past .roast-track i:last-child { background:currentColor; }.roast-window.resting { color:#ae781c; }.roast-window.optimal { color:#3e7b53; }.roast-window.past { color:#ad4545; }.roast-window.unknown { color:#888; }.roast-window.compact { margin-left:auto; font-size:8px; }.roast-window.compact .roast-track { display:none; }
+.coffee-picker { position:relative; width:max-content; max-width:100%; }
+.coffee-picker summary { display:flex; align-items:center; min-width:0; gap:8px; padding:0; list-style:none; font-size:21px; font-weight:600; letter-spacing:-.6px; cursor:pointer; }
+.coffee-picker summary::-webkit-details-marker { display:none; }
+.coffee-current-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.picker-chevron { color:#777; font-size:15px; line-height:1; }
+.coffee-picker[open] .picker-chevron { transform:rotate(180deg); }
+.coffee-options { position:absolute; z-index:2; top:calc(100% + 8px); left:0; min-width:270px; max-width:min(380px,calc(100vw - 60px)); padding:5px; background:#fff; border:1px solid #cfcfcf; border-radius:5px; box-shadow:0 8px 24px #1a1a1a20; }
+.coffee-options button { display:flex; align-items:center; gap:9px; width:100%; min-width:0; padding:9px 10px; border-radius:3px; text-align:left; font-size:12px; }
+.coffee-option-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.coffee-option-rating { flex:none; margin-left:auto; color:#555; font-size:10px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.coffee-options button:hover,.coffee-options button[aria-pressed=true] { background:#efefef; }
+.archived-coffees { margin-top:5px; padding-top:5px; border-top:1px solid #e4e4e4; }
+.archived-coffees>summary { padding:7px 10px; cursor:pointer; font-size:10px; color:#777; }
+.archived-coffees>div { display:flex; align-items:center; gap:4px; }
+.archived-coffees>div>button:first-child { flex:1; }
+.restore-coffee { padding:7px 9px!important; width:auto!important; color:#555; font-size:10px!important; }
+.archived-badge { display:inline-block; margin-right:7px; padding:2px 5px; border:1px solid #aaa; border-radius:3px; font-size:8px; }
+.roast-window { display:inline-flex; align-items:center; gap:5px; color:#777; font-size:9px; white-space:nowrap; }
+.roast-track { display:inline-flex; gap:2px; }
+.roast-track i { display:block; width:8px; height:4px; border-radius:2px; background:#ddd; }
+.roast-window.resting .roast-track i:first-child,.roast-window.optimal .roast-track i:nth-child(2),.roast-window.past .roast-track i:last-child { background:currentColor; }
+.roast-window.resting { color:#ae781c; }
+.roast-window.optimal { color:#3e7b53; }
+.roast-window.past { color:#ad4545; }
+.roast-window.unknown { color:#888; }
+.roast-window.compact { margin-left:auto; font-size:8px; }
+.roast-window.compact .roast-track { display:none; }
 .coffee-marker,.marker-choice { display:inline-block; width:10px; height:10px; border-radius:50%; background:#222; flex:none; }
 .coffee-marker.red,.marker-choice.red { background:#c74747; }.coffee-marker.orange,.marker-choice.orange { background:#c97a26; }.coffee-marker.green,.marker-choice.green { background:#43825b; }.coffee-marker.blue,.marker-choice.blue { background:#4477a8; }.coffee-marker.purple,.marker-choice.purple { background:#76509a; }
 .marker-picker { border:0; padding:0; margin:0 0 16px; }.marker-picker legend { font-size:10px; color:#777; margin-bottom:7px; }.marker-picker>div { display:flex; gap:8px; align-items:center; }.marker-choice,.marker-clear { width:26px; height:26px; padding:0; border:2px solid transparent; border-radius:50%; }.marker-choice[aria-pressed=true],.marker-clear[aria-pressed=true] { border-color:#222; box-shadow:0 0 0 2px #fff inset; }.marker-clear { border:1px solid #bbb; border-radius:4px; color:#777; font-size:16px; line-height:1; }
@@ -120,13 +146,20 @@ h1 > span { color: var(--accent); }
 .primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 4px; background: var(--accent); color: #ffffff; font-size: 12px; font-weight: 600; padding: 12px 17px; box-shadow: 0 2px 2px #2a2a2a12; white-space: nowrap; }
 .primary:not(:disabled):hover { background: #3a3a3a; box-shadow: 0 3px 9px #2a2a2a22; }
 .primary svg { width: 16px; height: 16px; }
-.coffee-panel { display: flex; align-items: center; gap: 17px; padding: 18px 20px; background: #f7f7f7; border: 1px solid #dddddd; border-radius: 5px; }
+.coffee-panel { display:flex; align-items:flex-start; gap:17px; padding:17px 20px 16px; background:#f7f7f7; border:1px solid #dddddd; border-radius:5px; }
 .coffee-selection { flex: 1; min-width: 0; }
-.coffee-selection label { font-size: 8px; letter-spacing: 1.7px; margin: 0 0 5px; font-weight: 650; color: #737373; }
-.coffee-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: #737373; font-size: 10px; margin-top: 6px; }
-.meta-divider { color: #737373; }
-.coffee-meta .text-button { font-size: 10px; padding: 0; margin-left: 5px; gap: 4px; }
-.coffee-meta .text-button svg { width: 12px; height: 12px; }
+.coffee-title-row { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:4px; }
+.coffee-selection label { font-size:8px; letter-spacing:1.7px; font-weight:650; color:#737373; }
+.coffee-details { padding:0; font-size:10px; gap:4px; }
+.coffee-details svg { width:12px; height:12px; }
+.coffee-descriptor { margin-top:5px; color:#6d6d6d; font-size:10px; line-height:1.4; }
+.coffee-facts { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); margin-top:13px; padding-top:11px; border-top:1px solid #dedede; }
+.coffee-facts>div { min-width:0; padding:0 12px; border-left:1px solid #dedede; }
+.coffee-facts>div:first-child { padding-left:0; border-left:0; }
+.coffee-facts>div>span:first-child { display:block; margin-bottom:5px; color:#888; font-size:8px; font-weight:650; letter-spacing:1px; }
+.coffee-facts strong { display:block; color:#262626; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.coffee-facts small { display:block; margin-top:2px; color:#858585; font-size:9px; }
+.coffee-facts .roast-window { min-height:16px; font-size:10px; }
 .add-coffee { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 12px; border: 1px solid #cccccc; font-size: 10px; border-radius: 4px; white-space: nowrap; color: #757575; }
 .add-coffee svg { width: 14px; height: 14px; }
 .add-coffee:hover { background: #dddddd; }
@@ -334,10 +367,10 @@ details { font-size: 11px; color: #737373; overflow-wrap: anywhere; }
   .primary { padding: 11px 13px; font-size: 11px; gap: 5px; }
   .heading .eyebrow { font-size: 7px; letter-spacing: 1.7px; }
   .coffee-panel { padding: 14px; gap: 11px; }
-  .coffee-meta { font-size: 8px; gap: 4px; line-height: 1.5; }
-  .coffee-meta .text-button { font-size: 9px; margin-left: 0; }
-  .coffee-meta .meta-divider { display: none; }
-  .coffee-meta>span:first-child { width: 100%; }
+  .coffee-picker summary { font-size:18px; }
+  .coffee-facts { grid-template-columns:repeat(2,minmax(0,1fr)); row-gap:12px; }
+  .coffee-facts>div:nth-child(3) { padding-left:0; border-left:0; }
+  .coffee-facts>div:nth-child(2n) { padding-right:0; }
   .add-coffee { padding: 7px; align-self: flex-start; margin-top: 1px; }
   .add-coffee span { display: none; }
   .list-heading { margin-top: 16px; margin-bottom: 10px; }
@@ -437,7 +470,6 @@ details { font-size: 11px; color: #737373; overflow-wrap: anywhere; }
  .preview-coffee { font-size:20px; }
  .landing-footer { min-height:58px; }
 }
-
 .messages::-webkit-scrollbar, .markdown::-webkit-scrollbar { display: none; }
 .markdown { scrollbar-width: none; }
 .chat-input textarea { line-height: 1.4; scrollbar-width: none; }
@@ -451,7 +483,6 @@ button:active:not(:disabled) { opacity: .65; }
  .chat-heading { padding-bottom: 10px; }
  dialog { max-height: calc(var(--app-height) - 24px); overscroll-behavior: contain; }
 }
-
 /* Outcomes use the shared setting-badge geometry; only semantic color changes. */
 .shot-outcome { background:#25813b; border-color:#25813b; color:#fff; }
 .shot-outcome.adjust { background:#9a7427; border-color:#9a7427; }
@@ -463,7 +494,6 @@ button:active:not(:disabled) { opacity: .65; }
 .outcome-picker button[aria-pressed=true] { border-color: #626262; background: #f3f3f3; }
 .brew-target { font-size: 12px; color: #626262; margin: 0 0 16px; }
 @media (max-width:700px) { .metrics strong { font-size: 21px; } }
-
 /* Follow Safari's visible viewport without shrinking a scrollable document. */
 :root[data-keyboard-open] { --app-safe-bottom: 0px; }
 [data-keyboard-open] .build-version { display: none; }
