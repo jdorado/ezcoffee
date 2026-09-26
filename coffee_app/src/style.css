@@ -34,7 +34,7 @@
 .coffee-current-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .picker-chevron { color:#777; font-size:15px; line-height:1; }
 .coffee-picker[open] .picker-chevron { transform:rotate(180deg); }
-.coffee-options { position:absolute; z-index:2; top:calc(100% + 8px); left:0; min-width:270px; max-width:min(380px,calc(100vw - 60px)); padding:5px; background:#fff; border:1px solid #cfcfcf; border-radius:5px; box-shadow:0 8px 24px #1a1a1a20; }
+.coffee-options { position:absolute; z-index:2; top:calc(100% + 8px); left:0; width:min(380px,calc(100vw - 60px)); padding:5px; background:#fff; border:1px solid #cfcfcf; border-radius:5px; box-shadow:0 8px 24px #1a1a1a20; }
 .coffee-options button { display:flex; align-items:center; gap:9px; width:100%; min-width:0; padding:9px 10px; border-radius:3px; text-align:left; font-size:12px; }
 .coffee-option-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .coffee-option-rating { flex:none; margin-left:auto; color:#555; font-size:10px; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -87,6 +87,9 @@
 .brew-switches { display:flex; gap:20px; }.tap-picker { flex:1; }.tap-picker button { min-width:40px; margin-right:3px; }
 .build-version { flex-shrink: 0; text-align: center; font-size: 9px; color: #888; padding: 4px 12px 5px; }
 .delete-record { display: block; width: 100%; margin-top: 14px; border-top: 1px solid #ddd; color: #a33232; font-size: 12px; }
+.new-bag-button { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; margin-top:13px; padding:10px; border:1px solid #c9c9c9; border-radius:4px; color:#444; font-size:11px; }
+.new-bag-button:hover { background:#f4f4f4; border-color:#888; }
+.new-bag-button svg { width:12px; height:12px; }
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; margin: 0; overflow: hidden; }
 body { overscroll-behavior: none; }

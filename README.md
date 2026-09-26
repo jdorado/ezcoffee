@@ -126,6 +126,17 @@ DEFAULT_PUCK_SCREEN=yes
 See [.env.example](.env.example) for the supported settings. Empty values keep
 the public defaults generic.
 
+Treat each bag as its own coffee entry. When you buy the same beans again, open
+**Bean details → New bag of this coffee** and enter the new roast date. The new
+entry copies the bean identity, but starts with no shots or score; the older bag
+keeps its history. The coffee picker shows roast dates to distinguish bags. Use
+the existing roast-date field only to correct the date of the same bag.
+
+The bean score uses up to five recent rated shots that were not marked as
+needing adjustment, failed, or choked. Newer shots count exponentially more,
+shots brewed 7–28 days after roasting have more weight, and the best shot in
+that window contributes a small peak bonus. Planned shots never count.
+
 ## Install it as an app
 
 ezcoffee is a Progressive Web App (PWA). Open **Profile → Install ezcoffee**:
