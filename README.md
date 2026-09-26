@@ -203,7 +203,7 @@ sudo install -m 600 profiles/production.env.example /etc/ezcoffee/production.env
 docker compose --env-file /etc/ezcoffee/production.env -f compose.yml up -d --build --wait
 ```
 
-Hosted chat uses OpenRouter's `~z-ai/glm-flash-latest` alias with structured
+Hosted chat uses OpenRouter's `deepseek/deepseek-v4.1-flash` with structured
 outputs required and provider fallback enabled. Operators keep
 `OPENROUTER_API_KEY` in the protected API runtime environment. The browser
 never receives it. See

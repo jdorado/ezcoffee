@@ -79,11 +79,11 @@ class OpenRouterSettings:
         api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not api_key:
             raise OpenRouterConfigError("OPENROUTER_API_KEY is required when hosted chat is enabled.")
-        # Pin OpenRouter's tilde-latest alias in code so a stale runtime
-        # variable cannot silently move production to a different model.
+        # Pin the tested model in code so a stale runtime variable cannot
+        # silently move production to a different model.
         return cls(
             api_key=api_key,
-            model="~z-ai/glm-flash-latest",
+            model="deepseek/deepseek-v4.1-flash",
             base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/"),
         )
 
