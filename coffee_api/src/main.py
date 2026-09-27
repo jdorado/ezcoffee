@@ -102,7 +102,7 @@ def coffee_age_from(coffee,as_of=None):
     roast=parse_roast_date(coffee.get('roast_date',''))
     current=as_of or datetime.now(timezone.utc).date()
     if roast is None or current<roast: return None
-    if coffee.get('bag_g') and not coffee.get('source_coffee_id'): return (current-roast).days
+    if coffee.get('bag_g') and coffee['bag_g']>(coffee.get('frozen_g') or 0) and not coffee.get('source_coffee_id'): return (current-roast).days
     freeze=parse_roast_date(coffee.get('freeze_date',''))
     if freeze is None or current<freeze: return (current-roast).days
     thaw=parse_roast_date(coffee.get('thaw_date',''))
@@ -203,6 +203,7 @@ class Coffee(BaseModel):
     bag_g:float|None=Field(default=None,gt=0,le=10000)
     freeze_date:str=''
     frozen_g:float|None=Field(default=None,gt=0,le=10000)
+    frozen_portions:list[Literal[125,250]]=Field(default_factory=list,max_length=80)
     thaw_date:str=''
     portion_g:Literal[125,250]|None=None
     source_coffee_id:str=''
@@ -408,17 +409,29 @@ async def write_coffee(key,data,account_id):
             raise HTTPException(422,'A thawed batch must keep its source roast and freeze dates.')
         if not thaw or values.get('portion_g') not in (125,250) or values.get('frozen_g') is not None or values.get('bag_g') is not None:
             raise HTTPException(422,'Set a thaw date and a 125 g or 250 g batch size.')
+        if values.get('frozen_portions'): raise HTTPException(422,'Frozen portions belong to the source bag.')
         used=sum(row.get('portion_g') or 0 for row in [entry async for entry in db.coffees.find({'account_id':account_id,'source_coffee_id':source_id,'id':{'$ne':key},'deleted_at':{'$exists':False}})])
         if used+values['portion_g']>(source.get('frozen_g') or 0):
             raise HTTPException(422,'Not enough coffee remains frozen for this batch.')
+        if source.get('frozen_portions'):
+            opened=[row.get('portion_g') for row in [entry async for entry in db.coffees.find({'account_id':account_id,'source_coffee_id':source_id,'id':{'$ne':key},'deleted_at':{'$exists':False}})]]
+            if opened.count(values['portion_g'])>=source['frozen_portions'].count(values['portion_g']):
+                raise HTTPException(422,'No frozen portion of that size remains.')
     elif freeze:
         if values.get('frozen_g') is None or thaw_text or (values.get('portion_g') is not None and not values.get('bag_g')):
             raise HTTPException(422,'Set the frozen amount in grams; thaw batches separately.')
-        if values.get('bag_g') and (values['bag_g']<=values['frozen_g'] or values.get('portion_g') not in (125,250) or values['frozen_g']%values['portion_g']):
+        portions=values.get('frozen_portions') or []
+        if portions:
+            if not values.get('bag_g') or values['bag_g']<values['frozen_g'] or sum(portions)!=values['frozen_g']:
+                raise HTTPException(422,'Frozen portions must fit the package and add up to the frozen amount.')
+            for size in (125,250):
+                if sum(row.get('portion_g')==size for row in children)>portions.count(size):
+                    raise HTTPException(422,'Keep portions that have already been opened.')
+        elif values.get('bag_g') and (values['bag_g']<=values['frozen_g'] or values.get('portion_g') not in (125,250) or values['frozen_g']%values['portion_g']):
             raise HTTPException(422,'Keep some coffee active and divide the frozen amount into equal 125 g or 250 g portions.')
         if sum(row.get('portion_g') or 0 for row in children)>values['frozen_g']:
             raise HTTPException(422,'Frozen amount cannot be less than the batches already thawed.')
-    elif values.get('frozen_g') is not None or thaw_text or values.get('portion_g') is not None:
+    elif values.get('frozen_g') is not None or thaw_text or values.get('portion_g') is not None or values.get('frozen_portions'):
         raise HTTPException(422,'Set a freeze date before tracking frozen coffee.')
     return await save(db.coffees,key,data,account_id)
 @app.post('/shots')
@@ -450,7 +463,7 @@ async def write_shot(key,data,account_id):
     freeze=parse_roast_date(coffee.get('freeze_date',''))
     thaw=parse_roast_date(coffee.get('thaw_date',''))
     if data.status=='logged' and freeze and not thaw and (shot_day is None or shot_day>=freeze):
-        if not coffee.get('bag_g'): raise HTTPException(422,'Thaw a batch before logging a shot from frozen coffee.')
+        if not coffee.get('bag_g') or coffee['bag_g']<=(coffee.get('frozen_g') or 0): raise HTTPException(422,'Thaw a batch before logging a shot from frozen coffee.')
     if data.status=='logged' and coffee.get('bag_g') and not coffee.get('source_coffee_id'):
         first_thaw=await db.coffees.find_one({'account_id':account_id,'source_coffee_id':coffee['id'],'deleted_at':{'$exists':False}},sort=[('thaw_date',1)])
         if first_thaw and (shot_day is None or shot_day>=parse_roast_date(first_thaw.get('thaw_date'))):
@@ -568,7 +581,7 @@ async def chat_prompt(job):
         'machine_label':os.getenv('ESPRESSO_MACHINE_LABEL',''),'grinder_label':os.getenv('GRINDER_LABEL',''),
         'tracked_fields':profile.get('tracked_fields',[]),'defaults':{'dose_g':os.getenv('DEFAULT_DOSE_G',''),'grind':os.getenv('DEFAULT_GRIND',''),
             'basket':os.getenv('DEFAULT_BASKET',''),'paper':os.getenv('DEFAULT_PAPER',''),'temperature_setting':os.getenv('DEFAULT_TEMP',''),'puck_screen':os.getenv('DEFAULT_PUCK_SCREEN','')}}
-    catalog=[{'id':c['id'],'name':c['name'],'brand':c.get('brand',''),**bean_details(c),'roast_date':c.get('roast_date',''),'bag_g':c.get('bag_g'),'freeze_date':c.get('freeze_date',''),'frozen_g':c.get('frozen_g'),'thaw_date':c.get('thaw_date',''),'portion_g':c.get('portion_g'),'source_coffee_id':c.get('source_coffee_id',''),'notes':c.get('notes','')[:500],'archived':c.get('archived',False)} for c in coffees[:30]]
+    catalog=[{'id':c['id'],'name':c['name'],'brand':c.get('brand',''),**bean_details(c),'roast_date':c.get('roast_date',''),'bag_g':c.get('bag_g'),'freeze_date':c.get('freeze_date',''),'frozen_g':c.get('frozen_g'),'frozen_portions':c.get('frozen_portions',[]),'thaw_date':c.get('thaw_date',''),'portion_g':c.get('portion_g'),'source_coffee_id':c.get('source_coffee_id',''),'notes':c.get('notes','')[:500],'archived':c.get('archived',False)} for c in coffees[:30]]
     # What's-working reference for dialing in, including archived coffees:
     # owner-marked reference shots, highly-rated, good-outcome, balanced, or
     # locked shots newest-first, capped per coffee so one bean cannot crowd out
@@ -666,7 +679,7 @@ async def chat_prompt(job):
         'current_records':{'profile':profile,'equipment_context':equipment_context,'selected_coffee':selected,'scope':'selected coffee plus bounded all-coffee overview',
             'coffee_catalog':catalog,'coffee_catalog_total':len(coffees),'coffee_overview':overview,'recent_logged_shots':recent[:6],'shot_deltas':deltas,'dial_in_summary':summary,'best_shot_for_coffee':best_shot,'next_shot_candidates':candidates,
             'planned_next_shot':planned,'reference_shots':reference,'captured_at':now()},
-        'action_guidance':{'coffee_fields':['name','brand','origin','variety','process','roast_level','single_origin','decaf','roast_date','bag_g','freeze_date','frozen_g','thaw_date','portion_g','source_coffee_id','notes','tag_color','archived','revision'],
+        'action_guidance':{'coffee_fields':['name','brand','origin','variety','process','roast_level','single_origin','decaf','roast_date','bag_g','freeze_date','frozen_g','frozen_portions','thaw_date','portion_g','source_coffee_id','notes','tag_color','archived','revision'],
             'coffee_field_values':{'process':['washed','natural','honey','anaerobic','wet_hulled','other'],'roast_level':['light','medium_light','medium','medium_dark','dark'],'single_origin':['single_origin','blend'],'decaf':'true or false'},
             'shot_fields':['coffee_id','revision','date','taste_balance','choked','rating','dose','grind','paper','temp','stop_yield_g','yield_g','target_yield_g','target_yield_max_g','outcome','locked','seconds','water_temp_c','water_g','ice_g','bloom_seconds','first_drip','pressure','basket','puck_screen','status','reference','taste'],
             'field_meanings':{'yield_g':'measured output grams','water_temp_c':'water temperature Celsius','seconds':'total brew time','bloom_seconds':'bloom time','ratio':'derived server-side, never written'},

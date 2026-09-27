@@ -6,7 +6,7 @@ function shotOrder(shot:Shot){return day(shot.date)||day(shot.recorded_at||'')||
 export function coffeeAgeDays(coffee:Coffee,asOf:string){
  const roast=day(coffee.roast_date),current=day(asOf)
  if(roast==null||current==null||current<roast)return null
- if(coffee.bag_g&&!coffee.source_coffee_id)return current-roast
+ if(coffee.bag_g&&coffee.bag_g>(coffee.frozen_g||0)&&!coffee.source_coffee_id)return current-roast
  const freeze=day(coffee.freeze_date||'')
  if(freeze==null||current<freeze)return current-roast
  const thaw=day(coffee.thaw_date||'')
