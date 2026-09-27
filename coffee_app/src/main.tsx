@@ -158,7 +158,7 @@ export default function App({onLogout}:{onLogout?:()=>void}){
    </div>
    <section className="coffee-panel" aria-label="Selected coffee">
     <div className="coffee-selection">
-     <div className="coffee-title-row"><label>ON THE BAR</label>{coffee&&<button className="text-button coffee-details" onClick={()=>setCoffeeDraft(coffee)}>Bean details <Icon name="arrow"/></button>}</div>
+     <div className="coffee-title-row"><label>ON THE BAR</label>{coffee&&<div className="shot-heading-actions"><button className="text-button coffee-details" onClick={()=>{setNewBagSource(coffee.id);setCoffeeDraft(newBagDraft(coffee))}}>New bag <Icon name="plus"/></button><button className="text-button coffee-details" onClick={()=>setCoffeeDraft(coffee)}>Bean details <Icon name="arrow"/></button></div>}</div>
      <details className="coffee-picker" ref={coffeePicker}>
       <summary aria-label="Choose coffee"><span className="coffee-current-name">{coffee?coffeeDisplayName(coffee):'Choose coffee'}</span>{coffee?.tag_color&&<span className={'coffee-marker '+coffee.tag_color} aria-hidden="true"/>}<span className="picker-chevron" aria-hidden="true">⌄</span></summary>
       <div className="coffee-options">
