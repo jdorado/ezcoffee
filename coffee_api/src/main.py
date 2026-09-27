@@ -199,6 +199,8 @@ class Coffee(BaseModel):
     roast_level:Literal['','light','medium_light','medium','medium_dark','dark']=''
     single_origin:Literal['','single_origin','blend']=''
     decaf:bool=False
+    bean_id:str=''
+    purchased_on:str=''
     roast_date:str=''
     bag_g:float|None=Field(default=None,gt=0,le=10000)
     freeze_date:str=''
@@ -209,6 +211,23 @@ class Coffee(BaseModel):
     source_coffee_id:str=''
     notes:str=Field(default='',max_length=10000)
     tag_color:Literal['','black','red','orange','green','blue','purple']=''
+    archived:bool=False
+    revision:int=0
+
+BEAN_FIELDS=('name','brand','origin','variety','process','roast_level','single_origin','decaf','notes','tag_color')
+
+class BeanDefinition(BaseModel):
+    name:str=Field(min_length=1,max_length=200)
+    brand:str=Field(default='',max_length=200)
+    origin:str=Field(default='',max_length=200)
+    variety:str=Field(default='',max_length=200)
+    process:Literal['','washed','natural','honey','anaerobic','wet_hulled','other']=''
+    roast_level:Literal['','light','medium_light','medium','medium_dark','dark']=''
+    single_origin:Literal['','single_origin','blend']=''
+    decaf:bool=False
+    notes:str=Field(default='',max_length=10000)
+    tag_color:Literal['','black','red','orange','green','blue','purple']=''
+    record_kind:Literal['bean']='bean'
     archived:bool=False
     revision:int=0
 
@@ -286,6 +305,7 @@ async def save(collection, key, data, account_id):
         if not row: raise HTTPException(409,'This record changed. Reload it before saving again.')
     else:
         if await collection.find_one({'account_id':account_id,'id':key}): raise HTTPException(409,'Record already exists.')
+        payload['created_at']=payload['updated_at']
         await collection.insert_one(payload)
     return clean(row if revision else payload)
 
@@ -293,8 +313,29 @@ async def save(collection, key, data, account_id):
 async def health():
     await client.admin.command('ping'); return {'status':'ok','app_mode':APP_MODE}
 
+async def coffee_inventory(account_id):
+    records=[clean(row) async for row in db.coffees.find({'account_id':account_id,'deleted_at':{'$exists':False}})]
+    definitions={row['id']:row for row in records if row.get('record_kind')=='bean'}
+    bags={row['id']:row for row in records if row.get('record_kind')!='bean' and not row.get('source_coffee_id')}
+    for bag in bags.values():
+        bean_id=bag.get('bean_id') or 'bean:'+bag['id']
+        if bean_id not in definitions:
+            definitions[bean_id]={'id':bean_id,**{field:bag[field] for field in BEAN_FIELDS if field in bag},'revision':0,'record_kind':'bean'}
+        bean=definitions[bean_id]
+        bag.update({field:bean[field] for field in BEAN_FIELDS if field in bean})
+        bag.update(bean_id=bean_id,record_kind='bag',archived=bag.get('archived',False) or bean.get('archived',False))
+    coffees=list(bags.values())
+    for batch in records:
+        source=bags.get(batch.get('source_coffee_id'))
+        if not source: continue
+        batch.update({field:source[field] for field in (*BEAN_FIELDS,'bean_id','roast_date','freeze_date') if field in source})
+        batch.update(record_kind='batch',archived=batch.get('archived',False) or source.get('archived',False))
+        coffees.append(batch)
+    beans=[{**bean,'bags':[{**bag,'batches':[batch for batch in coffees if batch.get('source_coffee_id')==bag['id']]} for bag in bags.values() if bag['bean_id']==bean['id']]} for bean in definitions.values()]
+    return beans,coffees
+
 async def state_for(account_id):
-    coffees=[clean(x) async for x in db.coffees.find({'account_id':account_id,'deleted_at':{'$exists':False}})]
+    beans,coffees=await coffee_inventory(account_id)
     shots=[clean(x) async for x in db.shots.find({'account_id':account_id,'deleted_at':{'$exists':False},'coffee_id':{'$in':[c['id'] for c in coffees]}})]
     shots.sort(key=shot_sort_key)
     messages=[clean(x) async for x in db.messages.find({'account_id':account_id}).sort('_id',1)] if AI_ENABLED else []
@@ -337,7 +378,7 @@ async def state_for(account_id):
                     })
             messages=visible_messages
     active_job=await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}},{'_id':0,'token':0,'account_id':0}) if AI_ENABLED else None
-    return {'coffees':coffees, 'shots':shots, 'profile':await read_profile(account_id), 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
+    return {'beans':beans, 'coffees':coffees, 'shots':shots, 'profile':await read_profile(account_id), 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
 
 @app.get('/state')
 async def state(request:Request):
@@ -363,11 +404,27 @@ async def put_profile(data:BrewProfile,request:Request):
         raise HTTPException(409,'This profile changed. Reload it before saving again.')
     return payload
 
+@app.post('/beans')
+async def create_bean(data:BeanDefinition,request:Request):
+    return await save(db.coffees,str(uuid.uuid4()),data,request.state.account_id)
+
+@app.put('/beans/{key}')
+async def edit_bean(key:str,data:BeanDefinition,request:Request):
+    existing=await db.coffees.find_one({'account_id':request.state.account_id,'id':key})
+    if existing and existing.get('record_kind')!='bean': raise HTTPException(422,'This ID belongs to a bag, not a bean definition.')
+    if not existing and not key.startswith('bean:'): raise HTTPException(404,'Bean definition not found.')
+    if not existing:
+        legacy=await db.coffees.find_one({'account_id':request.state.account_id,'id':key[5:],'source_coffee_id':{'$in':['',None]}})
+        if not legacy: raise HTTPException(404,'Bean definition not found.')
+    return await save(db.coffees,key,data,request.state.account_id)
+
 @app.delete('/coffees/{key}')
 async def delete_coffee(key:str,revision:int,request:Request):
-    if await db.coffees.find_one({'account_id':request.state.account_id,'source_coffee_id':key,'deleted_at':{'$exists':False}}):
-        raise HTTPException(409,'Archive this frozen bag while its thawed batches exist.')
-    return await delete_record(db.coffees,key,revision,request.state.account_id)
+    target=await db.coffees.find_one({'account_id':request.state.account_id,'id':key})
+    if target and target.get('record_kind')=='bean': raise HTTPException(422,'Delete bags from the bean definition instead.')
+    result=await delete_record(db.coffees,key,revision,request.state.account_id)
+    await db.coffees.update_many({'account_id':request.state.account_id,'source_coffee_id':key,'deleted_at':{'$exists':False}},{'$set':{'deleted_at':now()},'$inc':{'revision':1}})
+    return result
 
 @app.delete('/shots/{key}')
 async def delete_shot(key:str,revision:int,request:Request):
@@ -386,7 +443,20 @@ async def write_coffee(key,data,account_id):
     existing=await db.coffees.find_one({'account_id':account_id,'id':key,'revision':data.revision,'deleted_at':{'$exists':False}}) if data.revision else None
     if data.revision and not existing: raise HTTPException(409,'This coffee changed. Reload before saving again.')
     values={**(clean(existing) if existing else {}),**data.model_dump(exclude_unset=bool(data.revision))}
+    if existing and existing.get('record_kind')=='bean': raise HTTPException(422,'Use the bean definition endpoint.')
     source_id=values.get('source_coffee_id') or ''
+    bean_id=values.get('bean_id') or ''
+    if bean_id:
+        definition=await db.coffees.find_one({'account_id':account_id,'id':bean_id,'record_kind':'bean','deleted_at':{'$exists':False}})
+        if not definition and bean_id.startswith('bean:'):
+            definition=await db.coffees.find_one({'account_id':account_id,'id':bean_id[5:],'source_coffee_id':{'$in':['',None]},'deleted_at':{'$exists':False}})
+        if not definition: raise HTTPException(422,'Bean definition not found.')
+        if any(field in data.model_fields_set and values.get(field)!=definition.get(field) for field in BEAN_FIELDS):
+            raise HTTPException(422,'Edit shared bean details on the bean definition.')
+    if existing and existing.get('bean_id') and existing['bean_id']!=bean_id:
+        raise HTTPException(422,'A bag cannot be moved to another bean definition.')
+    if values.get('purchased_on') and parse_roast_date(values['purchased_on']) is None:
+        raise HTTPException(422,'Use a valid purchase date.')
     roast=parse_roast_date(values.get('roast_date',''))
     freeze_text=values.get('freeze_date') or ''
     thaw_text=values.get('thaw_date') or ''
@@ -394,24 +464,34 @@ async def write_coffee(key,data,account_id):
     thaw=parse_roast_date(thaw_text)
     if freeze_text and (not re.fullmatch(r'\d{4}-\d{2}-\d{2}',freeze_text) or freeze is None or roast is None or freeze<roast):
         raise HTTPException(422,'Freeze date must be on or after the roast date.')
-    if thaw_text and (not re.fullmatch(r'\d{4}-\d{2}-\d{2}',thaw_text) or thaw is None or freeze is None or thaw<freeze):
+    if thaw_text and (not re.fullmatch(r'\d{4}-\d{2}-\d{2}',thaw_text) or thaw is None or (freeze is not None and thaw<freeze) or (roast is not None and thaw<roast)):
         raise HTTPException(422,'Thaw date must be on or after the freeze date.')
     if existing and (existing.get('source_coffee_id') or '')!=source_id:
         raise HTTPException(422,'A thawed batch cannot be moved to another frozen bag.')
     children=[row async for row in db.coffees.find({'account_id':account_id,'source_coffee_id':key,'deleted_at':{'$exists':False}})] if not source_id else []
-    if children and existing and (freeze_text!=existing.get('freeze_date') or values.get('roast_date')!=existing.get('roast_date')):
-        raise HTTPException(422,'Roast and freeze dates cannot change after thawing batches.')
+    if values.get('bag_g') and sum(row.get('portion_g') or 0 for row in children)>values['bag_g']:
+        raise HTTPException(422,'Bag size cannot be less than its batches.')
+    for child in children:
+        started=parse_roast_date(child.get('thaw_date'))
+        if started and ((freeze and started<freeze) or (roast and started<roast)):
+            raise HTTPException(422,'Bag dates cannot fall after an existing batch start.')
     if source_id:
         source=await db.coffees.find_one({'account_id':account_id,'id':source_id,'deleted_at':{'$exists':False}})
-        if not source or source.get('source_coffee_id') or not source.get('freeze_date'):
+        if not source or source.get('record_kind')=='bean' or source.get('source_coffee_id') or not (source.get('freeze_date') or source.get('bag_g')):
             raise HTTPException(422,'Choose an existing frozen bag as the source.')
-        if values.get('roast_date')!=source.get('roast_date') or freeze_text!=source.get('freeze_date'):
+        if bean_id and bean_id!=(source.get('bean_id') or 'bean:'+source['id']):
+            raise HTTPException(422,'The batch must belong to its bag’s bean definition.')
+        if values.get('roast_date','')!=source.get('roast_date','') or freeze_text!=(source.get('freeze_date') or ''):
             raise HTTPException(422,'A thawed batch must keep its source roast and freeze dates.')
         if not thaw or values.get('portion_g') not in (125,250,500) or values.get('frozen_g') is not None or values.get('bag_g') is not None:
             raise HTTPException(422,'Set a thaw date and a 125 g, 250 g or 500 g batch size.')
         if values.get('frozen_portions'): raise HTTPException(422,'Frozen portions belong to the source bag.')
         used=sum(row.get('portion_g') or 0 for row in [entry async for entry in db.coffees.find({'account_id':account_id,'source_coffee_id':source_id,'id':{'$ne':key},'deleted_at':{'$exists':False}})])
-        if used+values['portion_g']>(source.get('frozen_g') or 0):
+        capacity=source.get('frozen_g') if source.get('freeze_date') else source.get('bag_g')
+        if not source.get('freeze_date'):
+            consumed=sum(row.get('dose') or 0 for row in [entry async for entry in db.shots.find({'account_id':account_id,'coffee_id':source_id,'status':'logged','deleted_at':{'$exists':False}})])
+            capacity=(capacity or 0)-consumed
+        if used+values['portion_g']>(capacity or 0):
             raise HTTPException(422,'Not enough coffee remains frozen for this batch.')
     elif freeze:
         if values.get('frozen_g') is None or thaw_text or (values.get('portion_g') is not None and not values.get('bag_g')):
@@ -422,6 +502,12 @@ async def write_coffee(key,data,account_id):
             raise HTTPException(422,'Frozen amount cannot be less than the batches already thawed.')
     elif values.get('frozen_g') is not None or thaw_text or values.get('portion_g') is not None or values.get('frozen_portions'):
         raise HTTPException(422,'Set a freeze date before tracking frozen coffee.')
+    if source_id and existing:
+        logged=[row async for row in db.shots.find({'account_id':account_id,'coffee_id':key,'status':'logged','deleted_at':{'$exists':False}})]
+        if sum(row.get('dose') or 0 for row in logged)>(values.get('portion_g') or 0):
+            raise HTTPException(422,'Batch size cannot be less than its logged coffee doses.')
+        if thaw and any(parse_roast_date(row.get('date')) and parse_roast_date(row['date'])<thaw for row in logged):
+            raise HTTPException(422,'Batch start cannot fall after an existing shot.')
     return await save(db.coffees,key,data,account_id)
 @app.post('/shots')
 async def create_shot(data:Shot,request:Request): return await write_shot(str(uuid.uuid4()),data,request.state.account_id)
@@ -444,7 +530,11 @@ async def write_shot(key,data,account_id):
     coffee_query={'account_id':account_id,'id':data.coffee_id,'deleted_at':{'$exists':False}}
     if is_new: coffee_query['archived']={'$ne':True}
     coffee=await db.coffees.find_one(coffee_query)
-    if not coffee: raise HTTPException(404,'Coffee not found')
+    if not coffee or coffee.get('record_kind')=='bean': raise HTTPException(404,'Coffee not found')
+    if coffee.get('source_coffee_id'):
+        parent=await db.coffees.find_one({'account_id':account_id,'id':coffee['source_coffee_id'],'deleted_at':{'$exists':False}})
+        if not parent: raise HTTPException(404,'Bag not found')
+        coffee.update(roast_date=parent.get('roast_date',''),freeze_date=parent.get('freeze_date',''))
     if data.date:
         try: datetime.fromisoformat(data.date.replace('Z','+00:00'))
         except ValueError: raise HTTPException(422,'Use an ISO date or leave the unknown shot date empty.')
@@ -548,7 +638,7 @@ async def chat(data:Chat,request:Request):
 
 async def chat_prompt(job):
     account_id=job['account_id']
-    coffees=[clean(c) async for c in db.coffees.find({'account_id':account_id,'deleted_at':{'$exists':False}})]
+    _,coffees=await coffee_inventory(account_id)
     selected=next((c for c in coffees if c['id']==job['coffee_id']),None)
     # The assistant reasons over the active logbook only. Archived coffees stay
     # readable in the UI and keep their history, but leave the prompt — unless
@@ -839,7 +929,7 @@ async def apply_inference_action(job,action):
         if key is None and not data.get('date'): data['date']=job.get('shot_date',now()[:10])
         row=await write_shot(key or str(uuid.uuid4()),Shot(**data),account_id)
     else:
-        row=await save(db.coffees,key or str(uuid.uuid4()),Coffee(**data),account_id)
+        row=await write_coffee(key or str(uuid.uuid4()),Coffee(**data),account_id)
     await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$push':{'receipts':{'kind':action['kind'],'record':row}}})
     return row
 

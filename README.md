@@ -126,19 +126,20 @@ DEFAULT_PUCK_SCREEN=yes
 See [.env.example](.env.example) for the supported settings. Empty values keep
 the public defaults generic.
 
-Treat each bag as its own coffee entry. When you buy the same beans again, open
-**Bean details → New bag of this coffee** and enter the new roast date. The new
-entry copies the bean identity, but starts with no shots or score; the older bag
-keeps its history. The coffee picker shows roast dates to distinguish bags. Use
-the existing roast-date field only to correct the date of the same bag.
+Bean details owns one shared coffee definition (name, roaster and bean attributes).
+Each purchase is a **bag**, and each portion started from that bag is a **batch**.
+The compact bag rows expose **+ Bag**, **Edit**, and **Delete**; batches appear
+indented beneath their bag with the same edit and delete actions. **+ Batch**
+creates a 125 g, 250 g, or 500 g batch dated today. Bag size, purchase date,
+roast date and optional freeze date are edited on the bag row. Shared bean
+changes apply to every bag. Scores remain scoped to each purchase and its batches.
 
-Choose the purchase size with **250 g / 500 g / 1 kg**. **Use whole bag**
-starts it as one active batch. Choose **Freeze** to put it in frozen stock,
-with today's date filled in. After saving, **+ New batch: 125 / 250 / 500 g**
-starts a batch in one tap, dated today, and subtracts it from frozen stock.
-The batch list lets you switch between batches; a batch's start date can be
-corrected in its details. **New bag** creates a separate purchase of the same
-beans with its own roast date and score. Portions from one purchase share its score.
+Bean definitions, bags and batches use the existing revisioned coffees collection,
+linked by `bean_id` and `source_coffee_id`; shots retain their original target IDs.
+Legacy entries are presented as a definition with one bag, without rewriting shots.
+Deleting a bag soft-deletes its batches and hides their shots from the logbook;
+the stored history is retained. Deleting a batch corrects its stock allocation.
+
 The displayed active age counts days before freezing and after thawing as a
 rough freshness guide. Freezing slows aging but does not stop it completely;
 use your shot ratings to judge how the coffee is actually tasting.

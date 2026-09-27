@@ -15,6 +15,54 @@ from fastapi.testclient import TestClient
 from src.main import app, client
 
 class CoffeeContract(unittest.TestCase):
+ def test_bean_bag_batch_hierarchy_crud(self):
+  bean=self.http.post('/beans',json={'name':'Shared beans','brand':'Test roaster'}).json()
+  def add_bag(size):
+   response=self.http.post('/coffees',json={'name':bean['name'],'brand':bean['brand'],'bean_id':bean['id'],'bag_g':size,'roast_date':'2026-09-01','freeze_date':'2026-09-05','frozen_g':size,'purchased_on':'2026-09-04'})
+   self.assertEqual(response.status_code,200,response.text)
+   return response.json()
+  first,second=add_bag(1000),add_bag(500)
+  batch=self.http.post('/coffees',json={'name':bean['name'],'brand':bean['brand'],'bean_id':bean['id'],'source_coffee_id':first['id'],'roast_date':first['roast_date'],'freeze_date':first['freeze_date'],'portion_g':125,'thaw_date':'2026-09-10'}).json()
+  shot=self.http.post('/shots',json={'coffee_id':batch['id'],'date':'2026-09-11','dose':18}).json()
+  updated=self.http.put('/beans/'+bean['id'],json={'name':'Renamed beans','brand':bean['brand'],'revision':bean['revision']})
+  self.assertEqual(updated.status_code,200,updated.text)
+  self.assertEqual(self.http.put('/beans/'+bean['id'],json={'name':'Stale','revision':bean['revision']}).status_code,409)
+  state=self.http.get('/state').json()
+  definition=next(row for row in state['beans'] if row['id']==bean['id'])
+  self.assertEqual(len(definition['bags']),2)
+  self.assertEqual(next(row for row in definition['bags'] if row['id']==first['id'])['batches'][0]['id'],batch['id'])
+  self.assertEqual(next(row for row in state['coffees'] if row['id']==batch['id'])['name'],'Renamed beans')
+  self.assertEqual(next(row for row in state['shots'] if row['id']==shot['id'])['coffee_id'],batch['id'])
+  changed=self.http.put('/coffees/'+first['id'],json={'name':'Renamed beans','revision':first['revision'],'freeze_date':'2026-09-06'})
+  self.assertEqual(changed.status_code,200,changed.text)
+  batch_edit=self.http.put('/coffees/'+batch['id'],json={'name':'Renamed beans','revision':batch['revision'],'freeze_date':'2026-09-06','portion_g':250})
+  self.assertEqual(batch_edit.status_code,200,batch_edit.text)
+  self.assertEqual(self.http.delete('/coffees/'+batch['id']+'?revision=1').status_code,409)
+  self.assertEqual(self.http.delete('/coffees/'+first['id']+'?revision=2').status_code,200)
+  state=self.http.get('/state').json()
+  self.assertFalse(any(row['id'] in {first['id'],batch['id']} for row in state['coffees']))
+  self.assertTrue(any(row['id']==second['id'] for row in state['coffees']))
+  self.assertTrue(any(row['id']==bean['id'] for row in state['beans']))
+ def test_nonfrozen_batches_account_for_bag_doses_and_delete(self):
+  bag=self.http.post('/coffees',json={'name':'Fresh bag','bag_g':250,'roast_date':'2026-09-01'}).json()
+  self.http.post('/shots',json={'coffee_id':bag['id'],'date':'2026-09-02','dose':18})
+  payload={'name':bag['name'],'source_coffee_id':bag['id'],'roast_date':bag['roast_date'],'portion_g':250,'thaw_date':'2026-09-03'}
+  self.assertEqual(self.http.post('/coffees',json=payload).status_code,422)
+  response=self.http.post('/coffees',json={**payload,'portion_g':125})
+  self.assertEqual(response.status_code,200,response.text)
+  batch=response.json()
+  self.assertEqual(self.http.delete('/coffees/'+batch['id']+'?revision=1').status_code,200)
+  self.assertEqual(self.http.post('/coffees',json={**payload,'portion_g':125}).status_code,200)
+ def test_legacy_bag_keeps_ids_when_promoted_to_definition(self):
+  bag=self.http.post('/coffees',json={'name':'Legacy beans','bag_g':250}).json()
+  state=self.http.get('/state').json()
+  legacy=next(row for row in state['coffees'] if row['id']==bag['id'])
+  restored=self.http.put('/coffees/'+bag['id'],json={**legacy,'archived':False})
+  self.assertEqual(restored.status_code,200,restored.text)
+  definition=self.http.put('/beans/'+legacy['bean_id'],json={'name':'Legacy renamed','revision':0})
+  self.assertEqual(definition.status_code,200,definition.text)
+  state=self.http.get('/state').json()
+  self.assertEqual(next(row for row in state['coffees'] if row['id']==bag['id'])['name'],'Legacy renamed')
  def test_frozen_bag_batches_preserve_dates_and_stock(self):
   from src.main import coffee_age_from
   bag=self.http.post('/coffees',json={'name':'Frozen test','roast_date':'2026-09-01','freeze_date':'2026-09-05','frozen_g':375}).json()
@@ -29,8 +77,10 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(self.http.post('/shots',json={'coffee_id':portions[0]['id'],'date':'2026-09-30'}).status_code,422)
   self.assertEqual(self.http.post('/shots',json={'coffee_id':portions[0]['id'],'date':'2026-10-02'}).status_code,200)
   self.assertEqual(self.http.post('/coffees',json={'name':'Too much','roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':'2026-10-01','portion_g':125,'source_coffee_id':bag['id']}).status_code,422)
-  self.assertEqual(self.http.put('/coffees/'+bag['id'],json={'revision':bag['revision'],'freeze_date':'2026-09-06','name':bag['name']}).status_code,422)
+  edited=self.http.put('/coffees/'+bag['id'],json={'revision':bag['revision'],'freeze_date':'2026-09-06','name':bag['name']})
+  self.assertEqual(edited.status_code,200)
   self.assertEqual(self.http.delete('/coffees/'+bag['id']+'?revision=1').status_code,409)
+  self.assertEqual(self.http.delete('/coffees/'+bag['id']+'?revision=2').status_code,200)
  def test_bag_keeps_one_portion_active_and_three_frozen(self):
   from src.main import coffee_age_from
   bag_response=self.http.post('/coffees',json={'name':'One kilo','roast_date':'2026-09-01','freeze_date':'2026-09-05','bag_g':1000,'frozen_g':750,'portion_g':250})
