@@ -132,18 +132,13 @@ entry copies the bean identity, but starts with no shots or score; the older bag
 keeps its history. The coffee picker shows roast dates to distinguish bags. Use
 the existing roast-date field only to correct the date of the same bag.
 
-For a 1 kg package, enter its roast date and **1000 g** package size. Add
-frozen portions with **+ 125 g portion** or **+ 250 g portion**; the form lists
-each one and shows how much stays active. For three 250 g frozen portions,
-750 g is frozen and 250 g remains active. Set the freeze date (the form
-defaults to today when you add a portion). You can also freeze all four
-250 g portions. Tap **Use next portion** when opening one; the app records
-today's thaw date, which you can correct in its details. It estimates active
-coffee left from logged shot doses and shows the unopened frozen grams.
-All portions retain the package's roast date and share its score.
-The **Current bag / portion** picker chooses what is on the bar and remembers
-your selection. **Use next portion** selects the newly opened portion. **New bag**
-starts a separate purchase with its own roast date and score.
+Choose the purchase size with **250 g / 500 g / 1 kg**. **Use whole bag**
+starts it as one active batch. Choose **Freeze** to put it in frozen stock,
+with today's date filled in. After saving, **+ New batch: 125 / 250 / 500 g**
+starts a batch in one tap, dated today, and subtracts it from frozen stock.
+The batch list lets you switch between batches; a batch's start date can be
+corrected in its details. **New bag** creates a separate purchase of the same
+beans with its own roast date and score. Portions from one purchase share its score.
 The displayed active age counts days before freezing and after thawing as a
 rough freshness guide. Freezing slows aging but does not stop it completely;
 use your shot ratings to judge how the coffee is actually tasting.

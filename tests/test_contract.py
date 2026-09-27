@@ -43,7 +43,18 @@ class CoffeeContract(unittest.TestCase):
    self.assertEqual(response.status_code,200,response.text)
   self.assertEqual(self.http.post('/shots',json={'coffee_id':bag['id'],'date':'2026-10-04'}).status_code,422)
   self.assertEqual(self.http.post('/coffees',json={'name':'Too much','roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':'2026-10-04','portion_g':250,'source_coffee_id':bag['id']}).status_code,422)
-  self.assertEqual(self.http.post('/coffees',json={'name':'Bad split','roast_date':'2026-09-01','freeze_date':'2026-09-05','bag_g':1000,'frozen_g':700,'portion_g':250}).status_code,422)
+  self.assertEqual(self.http.post('/coffees',json={'name':'Too much frozen','roast_date':'2026-09-01','freeze_date':'2026-09-05','bag_g':1000,'frozen_g':1200,'portion_g':250}).status_code,422)
+ def test_one_tap_batches_from_pooled_frozen_bag(self):
+  response=self.http.post('/coffees',json={'name':'Fresh purchase','roast_date':'2026-09-01','freeze_date':'2026-09-05','bag_g':1000,'frozen_g':1000})
+  self.assertEqual(response.status_code,200,response.text)
+  bag=response.json()
+  for grams in (125,250,500,125):
+   batch=self.http.post('/coffees',json={'name':bag['name'],'roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':'2026-09-27','portion_g':grams,'source_coffee_id':bag['id']})
+   self.assertEqual(batch.status_code,200,batch.text)
+  overflow=self.http.post('/coffees',json={'name':bag['name'],'roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':'2026-09-27','portion_g':125,'source_coffee_id':bag['id']})
+  self.assertEqual(overflow.status_code,422)
+  whole=self.http.post('/coffees',json={'name':'Whole bag','bag_g':250}).json()
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':whole['id'],'date':'2026-09-27','dose':18}).status_code,200)
  def test_mixed_frozen_portions_and_all_frozen_package(self):
   bag_response=self.http.post('/coffees',json={'name':'Mixed package','roast_date':'2026-09-01','freeze_date':'2026-09-05','bag_g':500,'frozen_g':375,'frozen_portions':[125,250]})
   self.assertEqual(bag_response.status_code,200,bag_response.text)

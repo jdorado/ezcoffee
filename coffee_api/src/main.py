@@ -205,7 +205,7 @@ class Coffee(BaseModel):
     frozen_g:float|None=Field(default=None,gt=0,le=10000)
     frozen_portions:list[Literal[125,250]]=Field(default_factory=list,max_length=80)
     thaw_date:str=''
-    portion_g:Literal[125,250]|None=None
+    portion_g:Literal[125,250,500]|None=None
     source_coffee_id:str=''
     notes:str=Field(default='',max_length=10000)
     tag_color:Literal['','black','red','orange','green','blue','purple']=''
@@ -407,28 +407,17 @@ async def write_coffee(key,data,account_id):
             raise HTTPException(422,'Choose an existing frozen bag as the source.')
         if values.get('roast_date')!=source.get('roast_date') or freeze_text!=source.get('freeze_date'):
             raise HTTPException(422,'A thawed batch must keep its source roast and freeze dates.')
-        if not thaw or values.get('portion_g') not in (125,250) or values.get('frozen_g') is not None or values.get('bag_g') is not None:
-            raise HTTPException(422,'Set a thaw date and a 125 g or 250 g batch size.')
+        if not thaw or values.get('portion_g') not in (125,250,500) or values.get('frozen_g') is not None or values.get('bag_g') is not None:
+            raise HTTPException(422,'Set a thaw date and a 125 g, 250 g or 500 g batch size.')
         if values.get('frozen_portions'): raise HTTPException(422,'Frozen portions belong to the source bag.')
         used=sum(row.get('portion_g') or 0 for row in [entry async for entry in db.coffees.find({'account_id':account_id,'source_coffee_id':source_id,'id':{'$ne':key},'deleted_at':{'$exists':False}})])
         if used+values['portion_g']>(source.get('frozen_g') or 0):
             raise HTTPException(422,'Not enough coffee remains frozen for this batch.')
-        if source.get('frozen_portions'):
-            opened=[row.get('portion_g') for row in [entry async for entry in db.coffees.find({'account_id':account_id,'source_coffee_id':source_id,'id':{'$ne':key},'deleted_at':{'$exists':False}})]]
-            if opened.count(values['portion_g'])>=source['frozen_portions'].count(values['portion_g']):
-                raise HTTPException(422,'No frozen portion of that size remains.')
     elif freeze:
         if values.get('frozen_g') is None or thaw_text or (values.get('portion_g') is not None and not values.get('bag_g')):
             raise HTTPException(422,'Set the frozen amount in grams; thaw batches separately.')
-        portions=values.get('frozen_portions') or []
-        if portions:
-            if not values.get('bag_g') or values['bag_g']<values['frozen_g'] or sum(portions)!=values['frozen_g']:
-                raise HTTPException(422,'Frozen portions must fit the package and add up to the frozen amount.')
-            for size in (125,250):
-                if sum(row.get('portion_g')==size for row in children)>portions.count(size):
-                    raise HTTPException(422,'Keep portions that have already been opened.')
-        elif values.get('bag_g') and (values['bag_g']<=values['frozen_g'] or values.get('portion_g') not in (125,250) or values['frozen_g']%values['portion_g']):
-            raise HTTPException(422,'Keep some coffee active and divide the frozen amount into equal 125 g or 250 g portions.')
+        if values.get('bag_g') and values['frozen_g']>values['bag_g']:
+            raise HTTPException(422,'Frozen coffee cannot exceed the bag size.')
         if sum(row.get('portion_g') or 0 for row in children)>values['frozen_g']:
             raise HTTPException(422,'Frozen amount cannot be less than the batches already thawed.')
     elif values.get('frozen_g') is not None or thaw_text or values.get('portion_g') is not None or values.get('frozen_portions'):
