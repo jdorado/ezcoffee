@@ -98,6 +98,15 @@ def roast_age_from(roast_date):
     age=(datetime.now(timezone.utc).date()-day).days
     return age if age>=0 else None
 
+def coffee_age_from(coffee,as_of=None):
+    roast=parse_roast_date(coffee.get('roast_date',''))
+    current=as_of or datetime.now(timezone.utc).date()
+    if roast is None or current<roast: return None
+    freeze=parse_roast_date(coffee.get('freeze_date',''))
+    if freeze is None or current<freeze: return (current-roast).days
+    thaw=parse_roast_date(coffee.get('thaw_date',''))
+    return (freeze-roast).days+((current-thaw).days if thaw is not None and current>=thaw else 0)
+
 def roast_window_label(age):
     if age is None: return 'unknown'
     if age<7: return f'resting · {7-age} to go'
@@ -190,6 +199,11 @@ class Coffee(BaseModel):
     single_origin:Literal['','single_origin','blend']=''
     decaf:bool=False
     roast_date:str=''
+    freeze_date:str=''
+    frozen_g:float|None=Field(default=None,gt=0,le=10000)
+    thaw_date:str=''
+    portion_g:Literal[125,250]|None=None
+    source_coffee_id:str=''
     notes:str=Field(default='',max_length=10000)
     tag_color:Literal['','black','red','orange','green','blue','purple']=''
     archived:bool=False
@@ -348,6 +362,8 @@ async def put_profile(data:BrewProfile,request:Request):
 
 @app.delete('/coffees/{key}')
 async def delete_coffee(key:str,revision:int,request:Request):
+    if await db.coffees.find_one({'account_id':request.state.account_id,'source_coffee_id':key,'deleted_at':{'$exists':False}}):
+        raise HTTPException(409,'Archive this frozen bag while its thawed batches exist.')
     return await delete_record(db.coffees,key,revision,request.state.account_id)
 
 @app.delete('/shots/{key}')
@@ -360,9 +376,47 @@ async def delete_record(collection,key,revision,account_id):
     return {'id':key,'deleted':True,'revision':row['revision']}
 
 @app.post('/coffees')
-async def create_coffee(data:Coffee,request:Request): return await save(db.coffees,str(uuid.uuid4()),data,request.state.account_id)
+async def create_coffee(data:Coffee,request:Request): return await write_coffee(str(uuid.uuid4()),data,request.state.account_id)
 @app.put('/coffees/{key}')
-async def edit_coffee(key:str,data:Coffee,request:Request): return await save(db.coffees,key,data,request.state.account_id)
+async def edit_coffee(key:str,data:Coffee,request:Request): return await write_coffee(key,data,request.state.account_id)
+async def write_coffee(key,data,account_id):
+    existing=await db.coffees.find_one({'account_id':account_id,'id':key,'revision':data.revision,'deleted_at':{'$exists':False}}) if data.revision else None
+    if data.revision and not existing: raise HTTPException(409,'This coffee changed. Reload before saving again.')
+    values={**(clean(existing) if existing else {}),**data.model_dump(exclude_unset=bool(data.revision))}
+    source_id=values.get('source_coffee_id') or ''
+    roast=parse_roast_date(values.get('roast_date',''))
+    freeze_text=values.get('freeze_date') or ''
+    thaw_text=values.get('thaw_date') or ''
+    freeze=parse_roast_date(freeze_text)
+    thaw=parse_roast_date(thaw_text)
+    if freeze_text and (not re.fullmatch(r'\d{4}-\d{2}-\d{2}',freeze_text) or freeze is None or roast is None or freeze<roast):
+        raise HTTPException(422,'Freeze date must be on or after the roast date.')
+    if thaw_text and (not re.fullmatch(r'\d{4}-\d{2}-\d{2}',thaw_text) or thaw is None or freeze is None or thaw<freeze):
+        raise HTTPException(422,'Thaw date must be on or after the freeze date.')
+    if existing and (existing.get('source_coffee_id') or '')!=source_id:
+        raise HTTPException(422,'A thawed batch cannot be moved to another frozen bag.')
+    children=[row async for row in db.coffees.find({'account_id':account_id,'source_coffee_id':key,'deleted_at':{'$exists':False}})] if not source_id else []
+    if children and existing and (freeze_text!=existing.get('freeze_date') or values.get('roast_date')!=existing.get('roast_date')):
+        raise HTTPException(422,'Roast and freeze dates cannot change after thawing batches.')
+    if source_id:
+        source=await db.coffees.find_one({'account_id':account_id,'id':source_id,'deleted_at':{'$exists':False}})
+        if not source or source.get('source_coffee_id') or not source.get('freeze_date'):
+            raise HTTPException(422,'Choose an existing frozen bag as the source.')
+        if values.get('roast_date')!=source.get('roast_date') or freeze_text!=source.get('freeze_date'):
+            raise HTTPException(422,'A thawed batch must keep its source roast and freeze dates.')
+        if not thaw or values.get('portion_g') not in (125,250) or values.get('frozen_g') is not None:
+            raise HTTPException(422,'Set a thaw date and a 125 g or 250 g batch size.')
+        used=sum(row.get('portion_g') or 0 for row in [entry async for entry in db.coffees.find({'account_id':account_id,'source_coffee_id':source_id,'id':{'$ne':key},'deleted_at':{'$exists':False}})])
+        if used+values['portion_g']>(source.get('frozen_g') or 0):
+            raise HTTPException(422,'Not enough coffee remains frozen for this batch.')
+    elif freeze:
+        if values.get('frozen_g') is None or thaw_text or values.get('portion_g') is not None:
+            raise HTTPException(422,'Set the frozen amount in grams; thaw batches separately.')
+        if sum(row.get('portion_g') or 0 for row in children)>values['frozen_g']:
+            raise HTTPException(422,'Frozen amount cannot be less than the batches already thawed.')
+    elif values.get('frozen_g') is not None or thaw_text or values.get('portion_g') is not None:
+        raise HTTPException(422,'Set a freeze date before tracking frozen coffee.')
+    return await save(db.coffees,key,data,account_id)
 @app.post('/shots')
 async def create_shot(data:Shot,request:Request): return await write_shot(str(uuid.uuid4()),data,request.state.account_id)
 @app.put('/shots/{key}')
@@ -383,10 +437,18 @@ async def write_shot(key,data,account_id):
         except ValueError: raise HTTPException(422,'Shot timestamp must include a timezone.')
     coffee_query={'account_id':account_id,'id':data.coffee_id,'deleted_at':{'$exists':False}}
     if is_new: coffee_query['archived']={'$ne':True}
-    if not await db.coffees.find_one(coffee_query): raise HTTPException(404,'Coffee not found')
+    coffee=await db.coffees.find_one(coffee_query)
+    if not coffee: raise HTTPException(404,'Coffee not found')
     if data.date:
         try: datetime.fromisoformat(data.date.replace('Z','+00:00'))
         except ValueError: raise HTTPException(422,'Use an ISO date or leave the unknown shot date empty.')
+    shot_day=datetime.fromisoformat(data.date.replace('Z','+00:00')).date() if data.date else None
+    freeze=parse_roast_date(coffee.get('freeze_date',''))
+    thaw=parse_roast_date(coffee.get('thaw_date',''))
+    if data.status=='logged' and freeze and not thaw and (shot_day is None or shot_day>=freeze):
+        raise HTTPException(422,'Thaw a batch before logging a shot from frozen coffee.')
+    if data.status=='logged' and thaw and shot_day and shot_day<thaw:
+        raise HTTPException(422,'A thawed batch cannot have shots before its thaw date.')
     return await save(db.shots,key,data,account_id)
 
 def next_shot_candidates(anchor,constraints=None,references=None,direction=None):
@@ -498,7 +560,7 @@ async def chat_prompt(job):
         'machine_label':os.getenv('ESPRESSO_MACHINE_LABEL',''),'grinder_label':os.getenv('GRINDER_LABEL',''),
         'tracked_fields':profile.get('tracked_fields',[]),'defaults':{'dose_g':os.getenv('DEFAULT_DOSE_G',''),'grind':os.getenv('DEFAULT_GRIND',''),
             'basket':os.getenv('DEFAULT_BASKET',''),'paper':os.getenv('DEFAULT_PAPER',''),'temperature_setting':os.getenv('DEFAULT_TEMP',''),'puck_screen':os.getenv('DEFAULT_PUCK_SCREEN','')}}
-    catalog=[{'id':c['id'],'name':c['name'],'brand':c.get('brand',''),**bean_details(c),'roast_date':c.get('roast_date',''),'notes':c.get('notes','')[:500],'archived':c.get('archived',False)} for c in coffees[:30]]
+    catalog=[{'id':c['id'],'name':c['name'],'brand':c.get('brand',''),**bean_details(c),'roast_date':c.get('roast_date',''),'freeze_date':c.get('freeze_date',''),'thaw_date':c.get('thaw_date',''),'portion_g':c.get('portion_g'),'source_coffee_id':c.get('source_coffee_id',''),'notes':c.get('notes','')[:500],'archived':c.get('archived',False)} for c in coffees[:30]]
     # What's-working reference for dialing in, including archived coffees:
     # owner-marked reference shots, highly-rated, good-outcome, balanced, or
     # locked shots newest-first, capped per coffee so one bean cannot crowd out
@@ -511,7 +573,8 @@ async def chat_prompt(job):
         if reference_counts.get(coffee_id,0)>=3: continue
         reference_counts[coffee_id]=reference_counts.get(coffee_id,0)+1
         bean=names.get(coffee_id,{})
-        age=roast_age_from(bean.get('roast_date',''))
+        shot_day=parse_roast_date(s.get('date',''))
+        age=coffee_age_from(bean,shot_day)
         reference.append({'coffee_id':coffee_id,'coffee':bean.get('name',''),'archived':bool(bean.get('archived',False)),
             'coffee_origin':bean.get('origin',''),'coffee_process':bean.get('process',''),'coffee_roast_level':bean.get('roast_level',''),'coffee_decaf':bool(bean.get('decaf',False)),
             'reference':bool(s.get('reference')),'roast_age_days':age,'roast_window':roast_window_label(age),
@@ -585,7 +648,7 @@ async def chat_prompt(job):
     summary={'logged_count':len(selected_shots),'unresolved':success_index is None,'attempts_since_last_success':success_index if success_index is not None else len(selected_shots),'grind_trials':trials} if selected and selected_shots else None
     best_shot={**anchor,'facts':shot_facts(anchor),'taste':anchor.get('taste','')[:240]} if anchor else None
     if selected:
-        age=roast_age_from(selected.get('roast_date',''))
+        age=coffee_age_from(selected)
         selected={**selected,'notes':selected.get('notes','')[:2000],'roast_age_days':age,'roast_window':roast_window_label(age)}
     for shot in recent[:6]:
         shot['facts']=shot_facts(shot)
@@ -595,7 +658,7 @@ async def chat_prompt(job):
         'current_records':{'profile':profile,'equipment_context':equipment_context,'selected_coffee':selected,'scope':'selected coffee plus bounded all-coffee overview',
             'coffee_catalog':catalog,'coffee_catalog_total':len(coffees),'coffee_overview':overview,'recent_logged_shots':recent[:6],'shot_deltas':deltas,'dial_in_summary':summary,'best_shot_for_coffee':best_shot,'next_shot_candidates':candidates,
             'planned_next_shot':planned,'reference_shots':reference,'captured_at':now()},
-        'action_guidance':{'coffee_fields':['name','brand','origin','variety','process','roast_level','single_origin','decaf','roast_date','notes','tag_color','archived','revision'],
+        'action_guidance':{'coffee_fields':['name','brand','origin','variety','process','roast_level','single_origin','decaf','roast_date','freeze_date','frozen_g','thaw_date','portion_g','source_coffee_id','notes','tag_color','archived','revision'],
             'coffee_field_values':{'process':['washed','natural','honey','anaerobic','wet_hulled','other'],'roast_level':['light','medium_light','medium','medium_dark','dark'],'single_origin':['single_origin','blend'],'decaf':'true or false'},
             'shot_fields':['coffee_id','revision','date','taste_balance','choked','rating','dose','grind','paper','temp','stop_yield_g','yield_g','target_yield_g','target_yield_max_g','outcome','locked','seconds','water_temp_c','water_g','ice_g','bloom_seconds','first_drip','pressure','basket','puck_screen','status','reference','taste'],
             'field_meanings':{'yield_g':'measured output grams','water_temp_c':'water temperature Celsius','seconds':'total brew time','bloom_seconds':'bloom time','ratio':'derived server-side, never written'},

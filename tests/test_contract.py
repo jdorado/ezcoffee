@@ -15,6 +15,22 @@ from fastapi.testclient import TestClient
 from src.main import app, client
 
 class CoffeeContract(unittest.TestCase):
+ def test_frozen_bag_batches_preserve_dates_and_stock(self):
+  from src.main import coffee_age_from
+  bag=self.http.post('/coffees',json={'name':'Frozen test','roast_date':'2026-09-01','freeze_date':'2026-09-05','frozen_g':375}).json()
+  self.assertEqual(coffee_age_from(bag,datetime(2026,10,10,tzinfo=timezone.utc).date()),4)
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':bag['id'],'date':'2026-09-06'}).status_code,422)
+  portions=[]
+  for grams in (125,250):
+   response=self.http.post('/coffees',json={'name':'Frozen test','roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':'2026-10-01','portion_g':grams,'source_coffee_id':bag['id']})
+   self.assertEqual(response.status_code,200,response.text)
+   portions.append(response.json())
+  self.assertEqual(coffee_age_from(portions[0],datetime(2026,10,10,tzinfo=timezone.utc).date()),13)
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':portions[0]['id'],'date':'2026-09-30'}).status_code,422)
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':portions[0]['id'],'date':'2026-10-02'}).status_code,200)
+  self.assertEqual(self.http.post('/coffees',json={'name':'Too much','roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':'2026-10-01','portion_g':125,'source_coffee_id':bag['id']}).status_code,422)
+  self.assertEqual(self.http.put('/coffees/'+bag['id'],json={'revision':bag['revision'],'freeze_date':'2026-09-06','name':bag['name']}).status_code,422)
+  self.assertEqual(self.http.delete('/coffees/'+bag['id']+'?revision=1').status_code,409)
  def test_chat_includes_fresh_manual_shots(self):
   import json
   from src.main import chat_prompt

@@ -132,6 +132,14 @@ entry copies the bean identity, but starts with no shots or score; the older bag
 keeps its history. The coffee picker shows roast dates to distinguish bags. Use
 the existing roast-date field only to correct the date of the same bag.
 
+To freeze a bag, set its freeze date and the grams placed in the freezer.
+Use **Thaw batch** for each 125 g or 250 g portion; enter the date you thawed
+it. The app tracks grams still frozen and lets you log shots on the thawed
+portion. Portions retain the source bag's roast date and share its score.
+The displayed active age counts days before freezing and after thawing as a
+rough freshness guide. Freezing slows aging but does not stop it completely;
+use your shot ratings to judge how the coffee is actually tasting.
+
 The bean score uses up to five recent rated shots that were not marked as
 needing adjustment, failed, or choked. Newer shots count exponentially more,
 shots brewed 7–28 days after roasting have more weight, and the best shot in
