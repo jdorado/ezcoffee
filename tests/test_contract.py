@@ -31,6 +31,19 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(self.http.post('/coffees',json={'name':'Too much','roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':'2026-10-01','portion_g':125,'source_coffee_id':bag['id']}).status_code,422)
   self.assertEqual(self.http.put('/coffees/'+bag['id'],json={'revision':bag['revision'],'freeze_date':'2026-09-06','name':bag['name']}).status_code,422)
   self.assertEqual(self.http.delete('/coffees/'+bag['id']+'?revision=1').status_code,409)
+ def test_bag_keeps_one_portion_active_and_three_frozen(self):
+  from src.main import coffee_age_from
+  bag_response=self.http.post('/coffees',json={'name':'One kilo','roast_date':'2026-09-01','freeze_date':'2026-09-05','bag_g':1000,'frozen_g':750,'portion_g':250})
+  self.assertEqual(bag_response.status_code,200,bag_response.text)
+  bag=bag_response.json()
+  self.assertEqual(coffee_age_from(bag,datetime(2026,10,10,tzinfo=timezone.utc).date()),39)
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':bag['id'],'date':'2026-09-06'}).status_code,200)
+  for day in range(1,4):
+   response=self.http.post('/coffees',json={'name':'One kilo','roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':f'2026-10-0{day}','portion_g':250,'source_coffee_id':bag['id']})
+   self.assertEqual(response.status_code,200,response.text)
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':bag['id'],'date':'2026-10-04'}).status_code,422)
+  self.assertEqual(self.http.post('/coffees',json={'name':'Too much','roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':'2026-10-04','portion_g':250,'source_coffee_id':bag['id']}).status_code,422)
+  self.assertEqual(self.http.post('/coffees',json={'name':'Bad split','roast_date':'2026-09-01','freeze_date':'2026-09-05','bag_g':1000,'frozen_g':700,'portion_g':250}).status_code,422)
  def test_chat_includes_fresh_manual_shots(self):
   import json
   from src.main import chat_prompt

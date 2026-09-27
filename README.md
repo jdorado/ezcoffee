@@ -132,10 +132,12 @@ entry copies the bean identity, but starts with no shots or score; the older bag
 keeps its history. The coffee picker shows roast dates to distinguish bags. Use
 the existing roast-date field only to correct the date of the same bag.
 
-To freeze a bag, set its freeze date and the grams placed in the freezer.
-Use **Thaw batch** for each 125 g or 250 g portion; enter the date you thawed
-it. The app tracks grams still frozen and lets you log shots on the thawed
-portion. Portions retain the source bag's roast date and share its score.
+For a 1 kg bag with 250 g active and three 250 g frozen portions, enter the
+roast and freeze dates, bag size **1000 g**, **250 g** to keep active, and
+**250 g** frozen portion size. Log shots on the bag while using the active
+coffee. Tap **Use next portion** when opening a frozen portion; the app
+records today's thaw date, which you can correct in its details. It tracks
+grams still frozen. All portions retain the bag's roast date and share its score.
 The displayed active age counts days before freezing and after thawing as a
 rough freshness guide. Freezing slows aging but does not stop it completely;
 use your shot ratings to judge how the coffee is actually tasting.
