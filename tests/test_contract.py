@@ -63,6 +63,28 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(definition.status_code,200,definition.text)
   state=self.http.get('/state').json()
   self.assertEqual(next(row for row in state['coffees'] if row['id']==bag['id'])['name'],'Legacy renamed')
+ def test_freeze_date_for_legacy_bag_without_size(self):
+  from pymongo import MongoClient
+  with MongoClient(os.environ['MONGO_URL']) as mongo:
+   mongo[os.environ['MONGO_DB']].coffees.insert_one({'account_id':'test-owner','id':'legacy-freeze-unknown-size','name':'Older bag','roast_date':'2026-09-18','notes':'','revision':1})
+  bag=next(row for row in self.http.get('/state').json()['coffees'] if row['id']=='legacy-freeze-unknown-size')
+  bean=self.http.put('/beans/'+bag['bean_id'],json={'name':bag['name'],'revision':0}).json()
+  shot=self.http.post('/shots',json={'coffee_id':bag['id'],'date':'2026-09-20','dose':14.5}).json()
+  payload={**bag,**bean,'id':bag['id'],'revision':bag['revision'],'bean_id':bean['id'],'source_coffee_id':'','roast_date':'2026-09-18','freeze_date':'2026-09-27','bag_g':None,'frozen_g':None,'portion_g':None,'thaw_date':'','frozen_portions':[]}
+  response=self.http.put('/coffees/'+bag['id'],json=payload)
+  self.assertEqual(response.status_code,200,response.text)
+  state=self.http.get('/state').json()
+  saved=next(row for row in state['coffees'] if row['id']==bag['id'])
+  self.assertEqual(saved['freeze_date'],'2026-09-27')
+  self.assertIsNone(saved['bag_g'])
+  self.assertIsNone(saved['frozen_g'])
+  self.assertTrue(any(row['id']==shot['id'] for row in state['shots']))
+  batch={'name':bean['name'],'bean_id':bean['id'],'source_coffee_id':bag['id'],'roast_date':saved['roast_date'],'freeze_date':saved['freeze_date'],'portion_g':125,'thaw_date':'2026-09-27'}
+  self.assertEqual(self.http.post('/coffees',json=batch).status_code,422)
+  sized=self.http.put('/coffees/'+bag['id'],json={**saved,'bag_g':500,'frozen_g':500})
+  self.assertEqual(sized.status_code,200,sized.text)
+  self.assertEqual(self.http.post('/coffees',json=batch).status_code,200)
+  self.assertEqual(self.http.put('/coffees/'+bag['id'],json=payload).status_code,409)
  def test_frozen_bag_batches_preserve_dates_and_stock(self):
   from src.main import coffee_age_from
   bag=self.http.post('/coffees',json={'name':'Frozen test','roast_date':'2026-09-01','freeze_date':'2026-09-05','frozen_g':375}).json()

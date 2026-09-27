@@ -488,17 +488,19 @@ async def write_coffee(key,data,account_id):
         if values.get('frozen_portions'): raise HTTPException(422,'Frozen portions belong to the source bag.')
         used=sum(row.get('portion_g') or 0 for row in [entry async for entry in db.coffees.find({'account_id':account_id,'source_coffee_id':source_id,'id':{'$ne':key},'deleted_at':{'$exists':False}})])
         capacity=source.get('frozen_g') if source.get('freeze_date') else source.get('bag_g')
+        if capacity is None:
+            raise HTTPException(422,'Set the bag size before adding batches.')
         if not source.get('freeze_date'):
             consumed=sum(row.get('dose') or 0 for row in [entry async for entry in db.shots.find({'account_id':account_id,'coffee_id':source_id,'status':'logged','deleted_at':{'$exists':False}})])
             capacity=(capacity or 0)-consumed
         if used+values['portion_g']>(capacity or 0):
             raise HTTPException(422,'Not enough coffee remains frozen for this batch.')
     elif freeze:
-        if values.get('frozen_g') is None or thaw_text or (values.get('portion_g') is not None and not values.get('bag_g')):
+        if (values.get('bag_g') and values.get('frozen_g') is None) or thaw_text or (values.get('portion_g') is not None and not values.get('bag_g')):
             raise HTTPException(422,'Set the frozen amount in grams; thaw batches separately.')
         if values.get('bag_g') and values['frozen_g']>values['bag_g']:
             raise HTTPException(422,'Frozen coffee cannot exceed the bag size.')
-        if sum(row.get('portion_g') or 0 for row in children)>values['frozen_g']:
+        if sum(row.get('portion_g') or 0 for row in children)>(values.get('frozen_g') or 0):
             raise HTTPException(422,'Frozen amount cannot be less than the batches already thawed.')
     elif values.get('frozen_g') is not None or thaw_text or values.get('portion_g') is not None or values.get('frozen_portions'):
         raise HTTPException(422,'Set a freeze date before tracking frozen coffee.')
