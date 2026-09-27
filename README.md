@@ -138,6 +138,9 @@ roast and freeze dates, bag size **1000 g**, **250 g** to keep active, and
 coffee. Tap **Use next portion** when opening a frozen portion; the app
 records today's thaw date, which you can correct in its details. It tracks
 grams still frozen. All portions retain the bag's roast date and share its score.
+The **Current bag / portion** picker chooses what is on the bar and remembers
+your selection. **Use next portion** selects the newly opened portion. **New bag**
+starts a separate purchase with its own roast date and score.
 The displayed active age counts days before freezing and after thawing as a
 rough freshness guide. Freezing slows aging but does not stop it completely;
 use your shot ratings to judge how the coffee is actually tasting.
