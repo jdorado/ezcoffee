@@ -18,21 +18,21 @@ if [[ -z "${MONGO_URL:-}" ]]; then
   pids+=("$!")
 fi
 for port in 8001 5176; do
-  stale="$(lsof -ti :"$port" 2>/dev/null || true)"
+  stale="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
   if [[ -n "$stale" ]]; then
     echo "Releasing port $port from stale process(es): $stale" >&2
     kill $stale 2>/dev/null || true
     for _ in {1..25}; do
-      lsof -ti :"$port" >/dev/null 2>&1 || break
+      lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 || break
       sleep 0.2
     done
-    if lsof -ti :"$port" >/dev/null 2>&1; then
+    if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
       echo "Port $port is still in use. Stop it manually: lsof -i :$port" >&2
       exit 1
     fi
   fi
 done
-(cd coffee_api && .venv/bin/python -m uvicorn src.main:app --host 127.0.0.1 --port 8001) &
+(cd coffee_api && .venv/bin/python -m uvicorn src.main:app --host 127.0.0.1 --port 8001 --reload --reload-dir src) &
 pids+=("$!")
 npm --prefix coffee_app run dev &
 pids+=("$!")
