@@ -1,26 +1,42 @@
-.bean-inventory { margin: 24px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.inventory-heading, .inventory-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; }
-.inventory-heading strong { font-size: 13px; }
-.bean-inventory button { min-height: 32px; padding: 5px 8px; font-size: 12px; }
+.bean-inventory { margin: 24px 0; padding: 0 0 16px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.inventory-heading, .inventory-batch-heading, .inventory-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.inventory-heading { min-height: 48px; }
+.inventory-heading strong, .inventory-batch-heading strong { font-size: 13px; font-weight: 600; }
+.bean-inventory button { min-height: 34px; padding: 6px 10px; font-size: 12px; border-radius: 3px; }
 .bean-inventory button:disabled { opacity: .35; }
-.inventory-bag { border-top: 1px solid var(--line); padding-bottom: 8px; }
-.inventory-name { text-align: left; flex: 1; min-width: 0; }
-.inventory-name small { display: block; font-size: 10px; color: var(--muted); margin-top: 4px; }
-.inventory-name[aria-pressed=true] { font-weight: 650; }
-.inventory-name[aria-pressed=true]::before { content: '• '; }
-.inventory-actions { display: flex; gap: 4px; flex-shrink: 0; }
-.inventory-batches { margin-left: 14px; padding-left: 10px; border-left: 1px solid var(--line); }
-.inventory-batches .inventory-row { padding: 4px 0; }
-.inventory-add { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 8px 0; }
-.inventory-add span, .inventory-empty { color: var(--muted); font-size: 11px; }
-.inventory-add button { border: 1px solid var(--line); border-radius: 3px; min-width: 48px; }
-.inventory-editor { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 12px 8px; background: var(--surface); }
-.inventory-editor label { flex: 1 1 100px; margin: 0; font-size: 11px; }
-.inventory-editor input, .inventory-editor select { width: 100%; min-width: 0; padding: 8px 5px; margin: 5px 0 0; }
-.inventory-editor .inventory-freeze { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; padding-bottom: 8px; }
-.inventory-freeze input { width: auto; margin: 0; }
-@media(max-width:480px) { .inventory-actions { gap: 0; } .inventory-actions button { padding: 5px; } .inventory-batches { margin-left: 6px; padding-left: 6px; } }
-
+.bean-inventory button:not(:disabled):hover { background: var(--surface-2); }
+.inventory-bag-picker { display: flex; align-items: center; gap: 8px; }
+.inventory-bag-picker select { flex: 1; width: 0; min-width: 0; margin: 0; padding: 11px 10px; font-size: 13px; font-weight: 550; background: var(--surface); border: 1px solid var(--line-2); border-radius: 3px; }
+.inventory-bag-picker button { flex-shrink: 0; color: var(--muted); }
+.inventory-bag-summary { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 11px; padding: 9px 0 16px; }
+.inventory-batches { border-top: 1px solid var(--line); }
+.inventory-batch-heading { padding: 12px 0 8px; flex-wrap: wrap; }
+.inventory-options { display: flex; gap: 4px; }
+.inventory-options button { border: 1px solid var(--line-2); white-space: nowrap; }
+.bean-inventory .inventory-options button[aria-pressed=true], .bean-inventory .inventory-save { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.inventory-batch + .inventory-batch { border-top: 1px solid var(--line); }
+.inventory-row { padding: 3px 0; }
+.bean-inventory .inventory-name { flex: 1; min-width: 0; padding: 10px 8px; text-align: left; }
+.inventory-name > span { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; font-weight: 550; }
+.inventory-batch-size { font-weight: 400; color: var(--muted); }
+.inventory-name small { display: block; font-size: 11px; color: var(--muted); margin-top: 5px; }
+.inventory-current { font-size: 9px; font-weight: 500; padding: 2px 6px; background: var(--ink); color: var(--surface); border-radius: 3px; margin-left: 4px; }
+.inventory-edit { color: var(--muted); flex-shrink: 0; }
+.inventory-empty { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 6px 0 2px; }
+.inventory-editor { display: grid; gap: 14px; }
+.inventory-editor label, .inventory-size > span { display: block; margin: 0; font-size: 11px; color: var(--muted); }
+.inventory-size > span { margin-bottom: 7px; }
+.inventory-dates { display: flex; gap: 12px; }
+.inventory-dates label { flex: 1; min-width: 0; }
+.inventory-editor input, .inventory-editor select { width: 100%; min-width: 0; padding: 9px 8px; margin: 5px 0 0; font-size: 12px; }
+.inventory-size .inventory-options > button { flex: 1; }
+.inventory-options .inventory-custom-size { display: flex; flex: 1; align-items: center; gap: 4px; min-width: 0; padding-right: 6px; border: 1px solid var(--line-2); border-radius: 3px; }
+.inventory-custom-size input { padding: 7px 3px 7px 8px; margin: 0; border: 0; background: transparent; }
+.inventory-storage { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
+.inventory-storage > label { flex: 1; min-width: 130px; }
+.inventory-editor-actions { display: flex; align-items: center; gap: 4px; padding-top: 2px; }
+.inventory-editor-actions .inventory-delete { margin-left: auto; color: var(--muted); }
+.inventory-batch .inventory-editor { padding: 10px 0; }
 .bean-attributes { margin: 16px 0; }
 .bean-attributes > summary { font-size: 12px; padding: 8px 0; }
 .bean-attributes[open] > summary { margin-bottom: 12px; }
