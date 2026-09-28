@@ -144,10 +144,21 @@ The displayed active age counts days before freezing and after thawing as a
 rough freshness guide. Freezing slows aging but does not stop it completely;
 use your shot ratings to judge how the coffee is actually tasting.
 
-The bean score uses up to five recent rated shots that were not marked as
-needing adjustment, failed, or choked. Newer shots count exponentially more,
-shots brewed 7–28 days after roasting have more weight, and the best shot in
-that window contributes a small peak bonus. Planned shots never count.
+The bean score combines all rated brews from one bag and its batches, excluding
+planned, adjustment, failed, and choked brews. A new bag starts its own score.
+It compares each brew's effective coffee age with the latest rated brew's age:
+every 14 days of difference halves its weight. Frozen days are paused, so a
+later batch at the same effective age can use the earlier batch's ratings fully.
+Both younger and older coffee ages count less as they move away from the latest
+brew's age. Missing roast dates fall back to elapsed brew dates.
+
+The estimated 7–28 active-day freshness window adds a smooth weight: every seven
+days outside it halves the influence, rather than imposing a sudden cutoff.
+These are simple product heuristics, not precise freshness predictions. The score
+is the weighted mean plus 25% of the weighted positive differences above that
+mean; a lone high rating's bonus shrinks with its evidence weight. The score
+updates with your records, not merely as calendar time passes. The calculation
+treats freezing as a full pause and does not estimate slow freezer aging.
 
 ## Install it as an app
 

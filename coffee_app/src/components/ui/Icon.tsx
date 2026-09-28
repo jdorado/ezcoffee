@@ -1,5 +1,7 @@
-type Name = 'cup' | 'chat' | 'plus' | 'arrow' | 'edit' | 'bean' | 'close' | 'check' | 'lock' | 'logout' | 'install' | 'retry' | 'expand' | 'shrink'
+type Name = 'filter' | 'more' | 'cup' | 'chat' | 'plus' | 'arrow' | 'edit' | 'bean' | 'close' | 'check' | 'lock' | 'logout' | 'install' | 'retry' | 'expand' | 'shrink'
 const paths: Record<Name, JSX.Element> = {
+ filter: <><path d="M4 7h16M7 12h10M10 17h4"/></>,
+ more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
  cup: <><path d="M5 8h11v6a5.5 5.5 0 0 1-11 0V8Z"/><path d="M16 9h2a3 3 0 0 1 0 6h-2M3 21h16M8 3v2m5-2v2"/></>,
  chat: <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3V11.5A7.5 7.5 0 0 1 9.5 4h3a7.5 7.5 0 0 1 7.5 7.5Z"/>,
  plus: <path d="M12 5v14M5 12h14"/>,
