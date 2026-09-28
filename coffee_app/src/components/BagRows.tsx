@@ -1,6 +1,7 @@
 import {forwardRef,useImperativeHandle,useState} from 'react'
 import {api,today} from '../api'
 import type {Bean,Coffee,Shot} from '../api'
+import {currentBagCoffee} from '../coffeePicker'
 import './BagRows.css'
 
 type Editor={kind:'bag'|'batch';row:Partial<Coffee>;parent?:Coffee;frozen?:boolean}
@@ -25,7 +26,7 @@ export default forwardRef<BagRowsHandle,Props>(function BagRows({beanId,coffees,
  const bagName=(row:Coffee)=>`Bag ${bags.indexOf(row)+1} · ${row.bag_g?sizeLabel(row.bag_g):'Size not set'}`
  const editingBag=editor?.kind==='bag'
  async function run(action:()=>Promise<void>){if(busy)return false;setBusy(true);setError('');try{await action();return true}catch(e){setError((e as Error).message);return false}finally{setBusy(false)}}
- function chooseBag(id:string){const next=bags.find(row=>row.id===id);if(!next)return;setEditor(null);setError('');select(children(next).at(-1)?.id||id)}
+ function chooseBag(id:string){const next=bags.find(row=>row.id===id);if(!next)return;setEditor(null);setError('');select(currentBagCoffee(coffees,next).id)}
  async function saveRow(){if(!editor)return;return run(async()=>{
   const row=editor.row,parent=editor.parent
   if(editor.kind==='bag'&&editor.frozen){
@@ -64,12 +65,12 @@ export default forwardRef<BagRowsHandle,Props>(function BagRows({beanId,coffees,
   {error&&<p role="alert">{error}</p>}
   {editingBag?rowEditor(editor):bag?<>
    <div className="inventory-bag-picker"><select aria-label="Choose bag" value={bag.id} disabled={busy} onChange={e=>chooseBag(e.target.value)}>{bags.map(row=><option key={row.id} value={row.id}>{bagName(row)}</option>)}</select><button type="button" disabled={busy} onClick={()=>{setError('');setEditor(bagEditor(bag))}}>Edit bag</button></div>
-   <div className="inventory-bag-summary"><span>Roasted {dateLabel(bag.roast_date)}</span><span>{bag.freeze_date?(bag.frozen_g==null?'Frozen · amount unknown':`${Math.round(remaining(bag))} g in freezer`):bag.bag_g?`~${Math.round(remaining(bag))} g ${batches.length?'in bag':'left'}`:'Room temperature'}</span></div>
+   <div className="inventory-bag-summary">{!!batches.length&&<button type="button" disabled={busy} aria-pressed={selected===bag.id} onClick={()=>select(bag.id)}>Bag history</button>}<span>Roasted {dateLabel(bag.roast_date)}</span><span>{bag.freeze_date?(bag.frozen_g==null?'Frozen · amount unknown':`${Math.round(remaining(bag))} g in freezer`):bag.bag_g?`~${Math.round(remaining(bag))} g ${batches.length?'in bag':'left'}`:'Room temperature'}</span></div>
    <div className="inventory-batches" aria-label="Batches in selected bag">
     <div className="inventory-batch-heading"><strong>Batches</strong>{!!(bag.bag_g||bag.frozen_g)&&<div className="inventory-options" role="group" aria-label="Start a new batch today">{([125,250,500] as const).map(size=><button type="button" key={size} disabled={busy||!!editor||bag.archived||size>remaining(bag)} aria-label={`Add ${size} g batch`} onClick={()=>addBatch(bag,size)}>+ {size} g</button>)}</div>}</div>
     {!batches.length&&<p className="inventory-empty">{!(bag.bag_g||bag.frozen_g)?'Set the bag size to add batches.':bag.freeze_date?'Tap a size to take your first batch out.':'Using the whole bag. Tap a size to split off a batch.'}</p>}
     {batches.map((batch,i)=><div className="inventory-batch" key={batch.id}>
-     {editor?.row.id===batch.id?rowEditor(editor):<div className="inventory-row"><button type="button" className="inventory-name" disabled={busy||batch.archived} aria-pressed={selected===batch.id} onClick={()=>select(batch.id)}><span>Batch {i+1} <span className="inventory-batch-size">· {batch.portion_g} g</span>{selected===batch.id&&<span className="inventory-current">Current</span>}</span><small>{bag.freeze_date?'Thawed':'Started'} {dateLabel(batch.thaw_date)} · ~{Math.round(Math.max(0,(batch.portion_g||0)-used(batch)))} g left</small></button><button type="button" className="inventory-edit" disabled={busy} aria-label={`Edit batch ${i+1}`} onClick={()=>{setError('');setEditor({kind:'batch',row:batch,parent:bag})}}>Edit</button></div>}
+     {editor?.row.id===batch.id?rowEditor(editor):<div className="inventory-row"><button type="button" className="inventory-name" disabled={busy} aria-pressed={selected===batch.id} onClick={()=>select(batch.id)}><span>Batch {i+1} <span className="inventory-batch-size">· {batch.portion_g} g</span>{selected===batch.id&&<span className="inventory-current">Current</span>}</span><small>{bag.freeze_date?'Thawed':'Started'} {dateLabel(batch.thaw_date)} · ~{Math.round(Math.max(0,(batch.portion_g||0)-used(batch)))} g left</small></button><button type="button" className="inventory-edit" disabled={busy} aria-label={`Edit batch ${i+1}`} onClick={()=>{setError('');setEditor({kind:'batch',row:batch,parent:bag})}}>Edit</button></div>}
     </div>)}
    </div>
   </>:<p className="inventory-empty">Add your first bag of these beans.</p>}

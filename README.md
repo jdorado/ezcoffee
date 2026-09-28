@@ -126,6 +126,11 @@ DEFAULT_PUCK_SCREEN=yes
 See [.env.example](.env.example) for the supported settings. Empty values keep
 the public defaults generic.
 
+Tap a number on a shot card to edit it in place. Enter or the checkmark saves;
+Escape or the cross cancels. The pencil opens the full details popup. The next
+shot supports the same quick edits plus **Edit plan**; saving its recipe keeps
+it planned until you log a brew. Stale edits are rejected with a reload action.
+
 Bean details owns one shared coffee definition (name, roaster and bean attributes).
 Each purchase is a **bag**, and each portion started from that bag is a **batch**.
 The compact bag rows expose **+ Bag**, **Edit**, and **Delete**; batches appear
