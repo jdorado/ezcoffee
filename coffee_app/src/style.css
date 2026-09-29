@@ -125,20 +125,19 @@ nav button:disabled { opacity: .42; background: transparent; }
 .roast-window.unknown { color: var(--faint); }
 .roast-window.compact { margin-left: auto; font-size: 8px; }
 .roast-window.compact .roast-track { display: none; }
-.coffee-marker, .marker-choice { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--ink); flex: none; box-shadow: 0 0 0 3px rgba(19, 18, 17, .07); }
-.coffee-marker.red, .marker-choice.red { background: #b65a4d; }
-.coffee-marker.orange, .marker-choice.orange { background: #c98a3e; }
-.coffee-marker.green, .marker-choice.green { background: #51785c; }
-.coffee-marker.blue, .marker-choice.blue { background: #587c98; }
-.coffee-marker.purple, .marker-choice.purple { background: #8a6c91; }
-.marker-picker { border: 0; padding: 0; margin: 0 0 18px; }
+.coffee-marker { display: inline-flex; width: 25px; height: 25px; flex: none; vertical-align: middle; }
+.coffee-marker svg { display: block; width: 100%; height: 100%; }
+.coffee-picker > summary .coffee-marker { width: 30px; height: 30px; }
+.marker-picker { border: 0; padding: 0; margin: 0 0 18px; min-width: 0; }
 .marker-picker legend { font-family: var(--font-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 9px; }
-.marker-picker > div { display: flex; gap: 9px; align-items: center; }
-.marker-choice, .marker-clear { width: 27px; height: 27px; padding: 0; border: 2px solid transparent; border-radius: 50%; box-shadow: none; }
-.marker-choice:hover { transform: scale(1.08); }
-.marker-choice[aria-pressed=true], .marker-clear[aria-pressed=true] { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface) inset; }
-.marker-clear { border: 1px solid var(--line-2); border-radius: 50%; color: var(--muted); font-size: 16px; line-height: 1; }
-.marker-clear:hover { border-color: var(--ink); color: var(--ink); }
+.marker-picker > div { display: grid; grid-template-columns: repeat(7, minmax(0, 40px)); gap: 4px; align-items: center; }
+.marker-choice, .marker-clear { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; height: 40px; padding: 3px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; }
+.marker-choice .coffee-marker { width: 32px; max-width: 100%; height: 32px; }
+.marker-choice:hover, .marker-clear:hover { background: var(--surface-2); border-color: var(--line-2); }
+.marker-choice[aria-pressed=true], .marker-clear[aria-pressed=true] { border-color: var(--ink); background: var(--surface-2); }
+.marker-choice:focus-visible, .marker-clear:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.marker-clear { color: var(--muted); font-size: 20px; line-height: 1; }
+.marker-clear:hover { color: var(--ink); }
 .list-order { margin: -4px 0 14px; color: var(--muted); font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em; }
 .next-plan-card { margin-top: 18px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--accent); color: #f6f5f1; overflow: hidden; transition: opacity .18s var(--ease); }
 .next-plan-card.loading { opacity: .6; }
@@ -370,7 +369,7 @@ details { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .chat-heading-actions button svg { width: 15px; height: 15px; }
 .chat-context { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; margin: 6px auto 10px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); color: var(--muted); font-family: var(--font-mono); font-size: 9px; letter-spacing: .05em; }
 .chat-context strong { max-width: min(56vw, 420px); overflow: hidden; color: var(--ink-2); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.chat-context .coffee-marker { width: 7px; height: 7px; box-shadow: none; }
+.chat-context .coffee-marker { width: 20px; height: 20px; }
 .messages { flex: 1; overflow: auto; min-height: 0; padding: 10px 0 20px; scrollbar-width: none; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
 .messages::-webkit-scrollbar { display: none; }
 .message { padding: 15px 18px; margin: 18px 0; border-radius: var(--radius); max-width: 90%; width: fit-content; font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
