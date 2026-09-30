@@ -616,9 +616,13 @@ class Chat(BaseModel):
     message:str=Field(min_length=1,max_length=4000)
     coffee_id:str|None=None
     shot_date:str=''
+    intent:Literal['chat','plan']='chat'
 
     @model_validator(mode='after')
     def valid_shot_date(self):
+        if self.coffee_id and re.fullmatch(r'(?:re)?generate(?:\s+(?:(?:my|the)\s+)?(?:next\s+)?(?:shot|brew|recipe|plan))?[.!]?',self.message.strip(),re.IGNORECASE):
+            self.intent='plan'
+        if self.intent=='plan' and not self.coffee_id: raise ValueError('Select a coffee before generating a plan.')
         if self.shot_date:
             try: datetime.fromisoformat(self.shot_date)
             except ValueError: raise ValueError('Use an ISO date for new chat shots.')
@@ -632,7 +636,7 @@ async def chat(data:Chat,request:Request):
     if previous:return clean(previous)
     if not data.message.strip():raise HTTPException(422,'Enter a message')
     if await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}}):raise HTTPException(409,'A chat reply is already running.')
-    job={'account_id':account_id,'id':data.id,'message':data.message,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[],'retry_count':0,'action_attempted':False}
+    job={'account_id':account_id,'id':data.id,'message':data.message,'intent':data.intent,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[],'retry_count':0,'action_attempted':False}
     await db.jobs.insert_one(job)
     await db.messages.insert_one({'account_id':account_id,'id':data.id+'-user','coffee_id':data.coffee_id,'role':'user','text':data.message})
     task=asyncio.create_task(run_chat(job));tasks.add(task);task.add_done_callback(tasks.discard)
@@ -756,7 +760,7 @@ async def chat_prompt(job):
         shot['facts']=shot_facts(shot)
         shot['taste']=shot.get('taste','')[:2000]
         shot['source']=shot.get('source','')[:500]
-    return json.dumps({'request':job['message'],'selected_coffee_id':job['coffee_id'],'job_id':job['id'],
+    return json.dumps({'request':job['message'],'intent':job.get('intent','chat'),'selected_coffee_id':job['coffee_id'],'job_id':job['id'],
         'current_records':{'profile':profile,'equipment_context':equipment_context,'selected_coffee':selected,'scope':'selected coffee plus bounded all-coffee overview',
             'coffee_catalog':catalog,'coffee_catalog_total':len(coffees),'coffee_overview':overview,'recent_logged_shots':recent[:6],'shot_deltas':deltas,'dial_in_summary':summary,'best_shot_for_coffee':best_shot,'next_shot_candidates':candidates,
             'planned_next_shot':planned,'reference_shots':reference,'captured_at':now()},
@@ -771,7 +775,7 @@ async def chat_prompt(job):
 async def run_chat(job):
     try:
         account_id=job['account_id']
-        await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'running'}})
+        await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'running','phase':'reviewing'}})
         prompt=await chat_prompt(job)
         session_jobs=[row['id'] async for row in db.jobs.find(
             {'account_id':account_id,'coffee_id':job.get('coffee_id')},{'_id':0,'id':1}
@@ -783,14 +787,16 @@ async def run_chat(job):
             ]}
         ).sort('_id',-1).limit(2)]
         result=await openrouter_reply(prompt,list(reversed(history)))
+        saved_plan=None
         if result.actions:
             # A write may succeed before its receipt is recorded. Mark the
             # job before applying the action so retries never duplicate a
             # potentially partial canonical write.
-            await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'action_attempted':True}})
+            await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'action_attempted':True,'phase':'saving'}})
         try:
             for action in result.actions:
-                await apply_inference_action(job,action)
+                saved=await apply_inference_action(job,action)
+                if action['kind']=='shot' and saved.get('status')=='planned': saved_plan=saved
         except Exception as exc:
             # Log which action was rejected so prod failures are diagnosable
             # from logs alone. Persist the same safe type/id/validation text
@@ -801,9 +807,11 @@ async def run_chat(job):
             detail=f'{type(exc).__name__} kind={action.get("kind")} id={action.get("id")}: {str(exc)[:200]}'
             await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'failed','error':CHAT_ACTION_REJECTED,'error_code':'action_rejected','error_detail':detail,'failed_at':now()}})
             return
+        if job.get('intent')=='plan' and not saved_plan:
+            raise PlanSyncError()
         reply=result.text
         await db.messages.update_one({'account_id':account_id,'id':job['id']+'-assistant'},{'$setOnInsert':{'account_id':account_id,'id':job['id']+'-assistant','coffee_id':job.get('coffee_id'),'role':'assistant','text':reply}},upsert=True)
-        await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'complete'}})
+        await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'complete','phase':'ready','saved_plan':saved_plan}})
     except (OpenRouterConfigError, OpenRouterError) as exc:
         code=openrouter_failure_code(exc)
         provider_status=getattr(exc,'provider_status',None)

@@ -1,4 +1,4 @@
-type Name = 'filter' | 'more' | 'cup' | 'chat' | 'plus' | 'arrow' | 'edit' | 'bean' | 'close' | 'check' | 'lock' | 'logout' | 'install' | 'retry' | 'expand' | 'shrink'
+type Name = 'filter' | 'more' | 'cup' | 'chat' | 'plus' | 'arrow' | 'edit' | 'bean' | 'close' | 'check' | 'lock' | 'star' | 'logout' | 'install' | 'retry' | 'expand' | 'shrink'
 const paths: Record<Name, JSX.Element> = {
  filter: <><path d="M4 7h16M7 12h10M10 17h4"/></>,
  more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
@@ -12,6 +12,7 @@ const paths: Record<Name, JSX.Element> = {
  logout: <><path d="M9 4H4v16h5m5-13 5 5-5 5M9 12h10"/></>,
  check: <path d="m5 12 4 4L19 6"/>,
  lock: <><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v2"/></>,
+ star: <path d="m12 3.2 2.2 6.3 6.6.2-5.2 4.1 1.8 6.4L12 16.6 6.6 20.2l1.8-6.4L3.2 9.7l6.6-.2L12 3.2z"/>,
  install: <><path d="M12 3v12m-4-4 4 4 4-4"/><path d="M5 20h14"/></>,
  retry: <><path d="M4 7v5h5"/><path d="M4.7 12A8 8 0 1 0 7 5.7L4 8"/></>,
  expand: <><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></>,

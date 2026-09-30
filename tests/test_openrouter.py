@@ -1,4 +1,6 @@
 import os
+import json
+import httpx
 import sys
 import unittest
 from pathlib import Path
@@ -14,6 +16,7 @@ from src.services.openrouter import (
     PlanSyncError,
     build_payload,
     response_result,
+    openrouter_reply,
     validate_plan_sync,
 )
 
@@ -146,6 +149,47 @@ class OpenRouterContract(unittest.TestCase):
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test", "OPENROUTER_MODEL": "old/model"}, clear=False):
             self.assertEqual(OpenRouterSettings.from_env().model, "deepseek/deepseek-v4.1-flash")
 
+
+class ReplyRecovery(unittest.IsolatedAsyncioTestCase):
+    async def test_punctuation_retries_once_before_returning_action(self):
+        calls = []
+        action = {"kind": "shot", "id": None, "data_json": json.dumps({"coffee_id": "bag", "status": "planned", "grind": "5.5"})}
+        def respond(request):
+            calls.append(json.loads(request.content))
+            text = "..." if len(calls) == 1 else "Keep the grind at **5.5**; the last shot was balanced."
+            return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({"reply": text, "actions": [action]})}}]})
+        original_client = httpx.AsyncClient
+        with patch("src.services.openrouter.OpenRouterSettings.from_env", return_value=OpenRouterSettings("test", "test", "https://example.invalid")), patch("src.services.openrouter.httpx.AsyncClient", side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
+            result = await openrouter_reply(json.dumps({"intent": "plan", "selected_coffee_id": "bag", "current_records": {}}), [])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(result.actions), 1)
+        self.assertIn("5.5", result.text)
+        self.assertIn("empty_reply", calls[1]["messages"][-1]["content"])
+
+    async def test_repeated_empty_replies_fail_after_two_attempts(self):
+        calls = []
+        def respond(request):
+            calls.append(request)
+            return httpx.Response(200, json={"choices": [{"message": {"content": '{"reply":"…","actions":[]}'}}]})
+        original_client = httpx.AsyncClient
+        with patch("src.services.openrouter.OpenRouterSettings.from_env", return_value=OpenRouterSettings("test", "test", "https://example.invalid")), patch("src.services.openrouter.httpx.AsyncClient", side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
+            with self.assertRaises(OpenRouterError) as raised:
+                await openrouter_reply('{}', [])
+        self.assertEqual(raised.exception.code, "empty_reply")
+        self.assertEqual(len(calls), 2)
+
+    def test_plan_intent_requires_selected_plan_action(self):
+        from src.services.openrouter import OpenRouterReply
+        prompt = json.dumps({"intent": "plan", "selected_coffee_id": "bag", "current_records": {"planned_next_shot": {"id": "plan"}}})
+        for action in [None, {"kind": "shot", "id": "wrong", "data": {"status": "planned"}}, {"kind": "shot", "id": "plan", "data": {"status": "logged"}}, {"kind": "shot", "id": "plan", "data": {"coffee_id": "other"}}]:
+            with self.assertRaises(PlanSyncError):
+                validate_plan_sync(prompt, OpenRouterReply("Recipe ready.", [] if action is None else [action]))
+        validate_plan_sync(prompt, OpenRouterReply("Keep the same recipe.", [{"kind": "shot", "id": "plan", "data": {"grind": "5.5", "revision": 2}}]))
+
+    def test_markdown_only_replies_are_rejected(self):
+        for text in ['...', '…', '** **', '---', '#', '   ']:
+            with self.assertRaises(OpenRouterError):
+                response_result({"choices": [{"message": {"content": json.dumps({"reply": text, "actions": []})}}]})
 
 if __name__ == "__main__":
     unittest.main()

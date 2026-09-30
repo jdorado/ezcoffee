@@ -11,8 +11,13 @@ const functions = names.map(name => source.split('\n').find(line => line.trim().
 const defaults = api.split('\n').filter(line => /^export const (today|blankShot)=/.test(line)).map(line => line.replace('export ', '')).join('\n')
 const planFields = source.split('\n').filter(line => line.trim().startsWith('const planRecipeFields=')).join('\n')
 const code = ts.transpile(`${defaults}\n${planFields}\n${functions}\nnewShot();return draft;`)
-const create = new Function('shots', 'selected', 'profile', `let draft;let suggested=new Set();const nextPlan=null;const grindEdited={current:false};const setDraft=value=>{draft=typeof value==="function"?value(draft):value};const setSuggested=value=>{suggested=value};const clearSuggested=()=>{};${code}`)
-const change = new Function('shots','d','value','edited',ts.transpile(`const grindEdited={current:edited};${functions}\nreturn changeSetting(d,'paper',value);`))
+const historyModule={exports:{}}
+new Function('module','exports',ts.transpileModule(fs.readFileSync(path.join(root,'coffee_app/src/coffeeHistory.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(historyModule,historyModule.exports)
+const {coffeeHistoryIds}=historyModule.exports
+const createDraft = new Function('shots', 'selected', 'profile', 'coffees', 'coffeeHistoryIds', `const loggedHistory=shots.filter(s=>coffeeHistoryIds(coffees,selected).has(s.coffee_id)&&s.status==='logged');let draft;let suggested=new Set();const nextPlan=null;const grindEdited={current:false};const setDraft=value=>{draft=typeof value==="function"?value(draft):value};const setSuggested=value=>{suggested=value};const clearSuggested=()=>{};${code}`)
+const create=(shots,selected,profile,coffees=[])=>createDraft(shots,selected,profile,coffees,coffeeHistoryIds)
+const changeSettingDraft = new Function('shots','d','value','edited','coffees','coffeeHistoryIds',ts.transpile(`const grindEdited={current:edited};${functions}\nreturn changeSetting(d,'paper',value);`))
+const change=(shots,d,value,edited,coffees=[])=>changeSettingDraft(shots,d,value,edited,coffees,coffeeHistoryIds)
 const forEdit = new Function('s','profile',ts.transpile(`${defaults}\n${functions}\nreturn shotForEdit(s);`))
 const profile={defaults:{dose:14,grind:'8',paper:'yes',temp:'I',basket:'test basket',puckScreen:'yes'}}
 const old = {coffee_id:'a',status:'logged',date:'2026-09-09',recorded_at:'2026-09-09T01:00:00Z',dose:14,grind:'5',paper:'yes',temp:'I'}
@@ -47,7 +52,7 @@ assert.equal(fresh.dose,14)
 assert.equal(fresh.grind,'8')
 const plan={coffee_id:'a',status:'planned',date:'2026-09-11',dose:15,grind:'6',paper:'no',temp:'0',water_temp_c:93,water_g:250,ice_g:null,bloom_seconds:40,pressure:'9 bar',basket:'test basket',puck_screen:'yes',target_yield_g:30,target_yield_max_g:32,yield_g:null,stop_yield_g:null,seconds:null}
 const fromPlanCode = ts.transpile(`${defaults}\n${planFields}\n${functions}\nnewShot();return {draft,suggested}`)
-const fromPlan = new Function('shots','selected','profile','plan', `let draft;let suggested=new Set();const nextPlan=plan;const tracked=()=>true;const grindEdited={current:false};const setDraft=value=>{draft=typeof value==="function"?value(draft):value};const setSuggested=value=>{suggested=value};const clearSuggested=()=>{};${fromPlanCode}`)([old,latest],'a',profile,plan)
+const fromPlan = new Function('shots','selected','profile','plan', `const loggedHistory=shots.filter(s=>s.coffee_id===selected&&s.status==='logged');let draft;let suggested=new Set();const nextPlan=plan;const tracked=()=>true;const grindEdited={current:false};const setDraft=value=>{draft=typeof value==="function"?value(draft):value};const setSuggested=value=>{suggested=value};const clearSuggested=()=>{};${fromPlanCode}`)([old,latest],'a',profile,plan)
 for(const key of ['dose','grind','paper','temp','water_temp_c','water_g','bloom_seconds','pressure','basket','puck_screen','target_yield_g','target_yield_max_g']) assert.equal(fromPlan.draft[key],plan[key],key)
 assert.equal(fromPlan.draft.yield_g,null)
 assert.equal(fromPlan.draft.stop_yield_g,30)
@@ -59,7 +64,7 @@ assert.equal(fromPlan.draft.id,undefined)
 assert.equal(fromPlan.draft.revision,0)
 assert.equal(fromPlan.draft.status,'logged')
 assert.match(fromPlan.draft.date,/^\d{4}-\d{2}-\d{2}$/)
-const explicitStop=new Function('shots','selected','profile','plan', `let draft;let suggested=new Set();const nextPlan=plan;const tracked=()=>true;const grindEdited={current:false};const setDraft=value=>{draft=typeof value==="function"?value(draft):value};const setSuggested=value=>{suggested=value};const clearSuggested=()=>{};${fromPlanCode}`)([old,latest],'a',profile,{...plan,stop_yield_g:29})
+const explicitStop=new Function('shots','selected','profile','plan', `const loggedHistory=shots.filter(s=>s.coffee_id===selected&&s.status==='logged');let draft;let suggested=new Set();const nextPlan=plan;const tracked=()=>true;const grindEdited={current:false};const setDraft=value=>{draft=typeof value==="function"?value(draft):value};const setSuggested=value=>{suggested=value};const clearSuggested=()=>{};${fromPlanCode}`)([old,latest],'a',profile,{...plan,stop_yield_g:29})
 assert.equal(explicitStop.draft.stop_yield_g,29)
 for(const key of ['dose','grind','water_temp_c','water_g','bloom_seconds','pressure','basket','target_yield_g','target_yield_max_g','stop_yield_g']) assert.ok(fromPlan.suggested.has(key),key)
 for(const key of ['paper','temp','puck_screen','ice_g','yield_g','seconds','rating','taste']) assert.ok(!fromPlan.suggested.has(key),key)
@@ -67,3 +72,22 @@ assert.match(styles, /input\.suggested, select\.suggested \{ color: #a9a9a9; \}/
 assert.doesNotMatch(styles, /\.tap-picker\.suggested/)
 assert.doesNotMatch(styles, /\.setting-check\.suggested/)
 console.log('New shot defaults and planned-shot editing: settings copied; results cleared; recorded plans become logged; the planned shot pre-fills text fields muted and pickers with normal styling.')
+
+// Opening another bag or batch keeps bean history, but recipe reuse logs to
+// the current inventory record and never carries measured results forward.
+const coffees=[{id:'a',bean_id:'beans',archived:true},{id:'new-bag',bean_id:'beans'},{id:'batch',bean_id:'beans',source_coffee_id:'new-bag'},{id:'unrelated',bean_id:'other'}]
+assert.deepEqual([...coffeeHistoryIds(coffees,'batch')].sort(),['a','batch','new-bag'])
+const acrossBags=create([latest,{...latest,coffee_id:'unrelated',date:'2026-09-30',grind:'99'}],'batch',profile,coffees)
+assert.equal(acrossBags.coffee_id,'batch')
+assert.equal(acrossBags.grind,latest.grind)
+assert.equal(acrossBags.yield_g,null)
+assert.equal(acrossBags.rating,undefined)
+assert.equal(change([latest],acrossBags,'no',false,coffees).grind,latest.grind)
+assert.deepEqual([...coffeeHistoryIds([{id:'legacy'},{id:'portion',source_coffee_id:'legacy'},{id:'different'}],'portion')].sort(),['legacy','portion'])
+const filterSource=source.split('\n').find(line=>line.startsWith('function filterShots('))
+const filter=new Function('shots','ids','paper','result',ts.transpile(`${functions}\n${filterSource}\nreturn filterShots(shots,ids,paper,result);`))
+const records=[latest,{...latest,id:'new',coffee_id:'batch',date:'2026-09-30',choked:false,outcome:'good'},{...latest,id:'plan',status:'planned'},{...latest,id:'elsewhere',coffee_id:'unrelated'}]
+assert.deepEqual(filter(records,coffeeHistoryIds(coffees,'new-bag'),'all','all').map(s=>s.id),['new','old'])
+assert.deepEqual(filter(records,coffeeHistoryIds(coffees,'batch'),'all','good').map(s=>s.id),['new'])
+assert.equal(records[0].coffee_id,'a')
+console.log('Bean history survives new bags/batches, archives, filters and recipe reuse.')

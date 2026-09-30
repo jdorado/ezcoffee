@@ -729,4 +729,50 @@ class CoffeeContract(unittest.TestCase):
   with patch('src.main.REQUIRE_AUTH',True),patch('src.main.OWNER_SUB','owner'):
    self.assertEqual(self.http.delete('/shots/'+other['id']+'?revision=1',headers={'Authorization':''}).status_code,401)
 
+ def test_generate_recovers_empty_reply_and_regenerates_one_plan(self):
+  import json, httpx
+  from pymongo import MongoClient
+  from unittest.mock import AsyncMock, patch
+  from src.main import run_chat
+  from src.services.openrouter import OpenRouterSettings
+  bag=self.http.post('/coffees',json={'name':'Inference recovery fixture','roast_date':'2026-09-20'}).json()
+  with MongoClient(os.environ['MONGO_URL']) as mongo:
+   database=mongo[os.environ['MONGO_DB']]
+   for generation in range(2):
+    calls=[]
+    expected_count=generation
+    def respond(request):
+     payload=json.loads(request.content)
+     snapshot=next(message['content'] for message in payload['messages'] if message['content'].startswith('The JSON below'))
+     prompt=json.loads(snapshot.split('\n\n',1)[1])
+     planned=prompt['current_records'].get('planned_next_shot')
+     calls.append(payload)
+     # The invalid response's action must never have reached Mongo.
+     self.assertEqual(database.shots.count_documents({'coffee_id':bag['id'],'status':'planned'}),expected_count)
+     action={'kind':'shot','id':planned['id'] if planned else None,'data_json':json.dumps({'coffee_id':bag['id'],'status':'planned','revision':planned['revision'] if planned else 0,'grind':'5.5','dose':18,'target_yield_g':36})}
+     text='...' if len(calls)==1 else 'Use **5.5** grind for the next test.'
+     return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps({'reply':text,'actions':[action]})}}]})
+    job_id='plan-recovery-'+str(generation)
+    with patch('src.main.run_chat',new=AsyncMock()):
+     request={'id':job_id,'message':'Plan my next shot for this coffee and save it as the planned shot.','coffee_id':bag['id'],'intent':'plan'} if generation==0 else {'id':job_id,'message':'Regenerate','coffee_id':bag['id']}
+     response=self.http.post('/chat',json=request)
+    self.assertEqual(response.status_code,200,response.text)
+    original_client=httpx.AsyncClient
+    with patch('src.services.openrouter.OpenRouterSettings.from_env',return_value=OpenRouterSettings('test','test','https://example.invalid')),patch('src.services.openrouter.httpx.AsyncClient',side_effect=lambda **kwargs:original_client(transport=httpx.MockTransport(respond),**kwargs)):
+     self.http.portal.call(run_chat,database.jobs.find_one({'id':job_id}))
+    completed=self.http.get('/chat/'+job_id).json()
+    self.assertEqual(completed['status'],'complete',completed)
+    self.assertEqual(completed['phase'],'ready')
+    self.assertEqual(completed['intent'],'plan')
+    self.assertEqual(len(calls),2)
+    self.assertEqual(len(completed['receipts']),1)
+    plan=database.shots.find_one({'coffee_id':bag['id'],'status':'planned'})
+    self.assertEqual(database.shots.count_documents({'coffee_id':bag['id'],'status':'planned'}),1)
+    self.assertEqual(completed['saved_plan']['id'],plan['id'])
+    self.assertEqual(completed['saved_plan']['revision'],plan['revision'])
+    self.assertEqual(plan['grind'],'5.5')
+    self.assertEqual(plan.get('yield_g'),None)
+    if generation==0: first_id=plan['id']
+    else: self.assertEqual(plan['id'],first_id)
+
 if __name__=='__main__':unittest.main()
