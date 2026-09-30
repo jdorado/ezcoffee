@@ -763,3 +763,5 @@ dialog input, dialog textarea, dialog select { scroll-margin-block: 20px 90px; }
 
 .plan-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 12px; margin: 10px 0 0; color: var(--muted); font-size: 11px; }
 .plan-notice .text-button { font-size: 10px; }
+
+.context-notice { margin: 10px 0; color: var(--muted); font-size: 11px; }

@@ -15,6 +15,32 @@ from fastapi.testclient import TestClient
 from src.main import app, client
 
 class CoffeeContract(unittest.TestCase):
+ def test_copy_context_matches_chat_records_and_stays_account_scoped(self):
+  import json
+  from src.main import chat_prompt
+  from pymongo import MongoClient
+  coffee=self.http.post('/coffees',json={'name':'Export café','roast_date':'2026-09-01'}).json()
+  for day in range(1,9):
+   self.http.post('/shots',json={'coffee_id':coffee['id'],'date':f'2026-09-{day:02d}','dose':18,'yield_g':36,'seconds':30,'grind':str(day),'taste':'Synthetic taste'})
+  plan=self.http.post('/shots',json={'coffee_id':coffee['id'],'date':'2026-09-09','status':'planned','dose':18,'grind':'8.5'}).json()
+  with MongoClient(os.environ['MONGO_URL']) as mongo:
+   mongo[os.environ['MONGO_DB']].coffees.insert_one({'account_id':'another-owner','id':'private-export-coffee','name':'Foreign private coffee','revision':1})
+  response=self.http.get('/coffees/'+coffee['id']+'/context')
+  self.assertEqual(response.status_code,200,response.text)
+  text=response.json()['text']
+  exported=json.loads(text.split('\n\n',1)[1])
+  expected=json.loads(self.http.portal.call(chat_prompt,{'account_id':'test-owner','id':'export-compare','message':'What next?','coffee_id':coffee['id']}))['current_records']
+  exported.pop('captured_at');expected.pop('captured_at')
+  self.assertEqual(exported,expected)
+  self.assertEqual(len(exported['recent_logged_shots']),6)
+  self.assertEqual(exported['planned_next_shot']['id'],plan['id'])
+  self.assertIn('Export café',text)
+  self.assertEqual(exported['recent_logged_shots'][0]['facts']['ratio'],'1:2.00')
+  for private in ['another-owner','Foreign private coffee','account_id','test-secret','test-key','action_guidance','job_id']:
+   self.assertNotIn(private,text)
+  for missing in ['private-export-coffee','missing-coffee']:
+   self.assertEqual(self.http.get('/coffees/'+missing+'/context').status_code,404)
+  self.assertEqual(self.http.get('/coffees/'+coffee['id']+'/context',headers={'Authorization':''}).status_code,401)
  def test_bean_bag_batch_hierarchy_crud(self):
   bean=self.http.post('/beans',json={'name':'Shared beans','brand':'Test roaster'}).json()
   def add_bag(size):

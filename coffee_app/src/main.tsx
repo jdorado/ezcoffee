@@ -1,6 +1,7 @@
 import {Fragment,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react'
 import type {PointerEvent as ReactPointerEvent} from 'react'
 import {api,blankShot,today} from './api'
+import {copyCoffeeContext} from './copyContext'
 import type {BrewProfile,Bean,Coffee,Shot,Message,TrackedField} from './api'
 import ChatComposer from './components/chat/ChatComposer'
 import ThinkingCounter from './components/chat/ThinkingCounter'
@@ -84,12 +85,16 @@ export default function App({onLogout}:{onLogout?:()=>void}){
  const [coffeeDraft,setCoffeeDraft]=useState<Partial<Coffee>|null>(null),[newBagSource,setNewBagSource]=useState<string|null>(null),[input,setInput]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false)
  const [job,setJob]=useState<string|null>(null),[sending,setSending]=useState(false),[retrying,setRetrying]=useState<string|null>(null)
  const [jobProgress,setJobProgress]=useState('Reviewing shots'),[planNotice,setPlanNotice]=useState<{coffeeId:string;text:string}|null>(null)
+ const [copyingContext,setCopyingContext]=useState(false),[copyNotice,setCopyNotice]=useState('')
+ const copyingContextRef=useRef(false)
  const [locking,setLocking]=useState<Set<string>>(()=>new Set())
  const [chatMaximized,setChatMaximized]=useState(false),[chatHeight,setChatHeight]=useState<number|null>(null)
  const messagesView=useRef<HTMLDivElement>(null),dialog=useRef<HTMLDialogElement>(null),coffeePicker=useRef<HTMLDetailsElement>(null)
  const chatSheetRef=useRef<HTMLElement>(null),chatDrag=useRef<{startY:number;startHeight:number;shellHeight:number;pointerId:number}|null>(null)
  async function refresh(){const state=await api('/state');const active=state.coffees.filter((c:Coffee)=>!c.archived);setBeans(state.beans||[]);setCoffees(state.coffees);setShots(rows=>{const known=new Map(rows.map(row=>[row.id,row]));return state.shots.map((row:Shot)=>{const current=known.get(row.id);return current&&current.revision>row.revision?current:row})});setMessages(state.messages);setBrewProfile(state.profile||fallbackProfile);setChatEnabled(state.capabilities?.chat??profile.chatEnabled);const restoreSelection=!selectionLoaded.current;selectionLoaded.current=true;setSelected(prev=>restoreSelection?initialCoffeeSelection(state.coffees,prev):active.some((c:Coffee)=>c.id===prev)?prev:initialCoffeeSelection(state.coffees,''));if(state.active_job){setJob(state.active_job.id);setJobProgress(state.active_job.phase==='saving'?'Saving plan':'Reviewing shots')}setLoading(false);return state}
  useEffect(()=>{if(!loading)try{localStorage.setItem('coffee.selected',selected)}catch{}},[selected,loading])
+ async function copyContext(coffeeId:string){if(copyingContextRef.current)return;copyingContextRef.current=true;setCopyingContext(true);setCopyNotice('');setError('');try{await copyCoffeeContext(coffeeId);setCopyNotice('Context copied. Paste it into another LLM.')}catch(e){setError('Could not copy context. '+(e as Error).message)}finally{copyingContextRef.current=false;setCopyingContext(false)}}
+ useEffect(()=>{setCopyNotice('')},[selected])
  async function removeRecord(){const row=draft||coffeeDraft;if(!row?.id)return;const kind=draft?'shot':'coffee';if(!window.confirm(kind==='coffee'?`Delete ${coffeeDisplayName(coffeeDraft as Coffee)} and remove all its shots from your logbook?`:'Delete this shot?'))return;setSaving(true);setError('');try{await api(`/${kind==='coffee'?'coffees':'shots'}/${row.id}?revision=${row.revision}`,'DELETE');setDraft(null);setCoffeeDraft(null);await refresh()}catch(e){setError((e as Error).message)}finally{setSaving(false)}}
  useEffect(()=>{const dismiss=(event:MouseEvent)=>{document.querySelectorAll<HTMLDetailsElement>('.compact-menu[open]').forEach(menu=>{if(!menu.contains(event.target as Node))menu.open=false})};const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')document.querySelectorAll<HTMLDetailsElement>('.compact-menu[open]').forEach(menu=>{menu.open=false;menu.querySelector<HTMLElement>('summary')?.focus()})};document.addEventListener('click',dismiss);document.addEventListener('keydown',escape);return()=>{document.removeEventListener('click',dismiss);document.removeEventListener('keydown',escape)}},[])
  useEffect(()=>{refresh().catch(e=>{setError(e.message);setLoading(false)})},[])
@@ -201,6 +206,7 @@ export default function App({onLogout}:{onLogout?:()=>void}){
    <a className="brand" href="#" aria-label="ezcoffee home" onClick={e=>{e.preventDefault();setTab('shots')}}><img className="brand-logo" src="/ezcoffee-logo-header.png" alt="ezcoffee"/></a>
    <nav aria-label="Primary">{['shots','profile'].map(t=><button key={t} aria-pressed={tab===t} className={tab===t?'active':''} onClick={()=>{setTab(t);setChatOpen(false)}}><Icon name={t==='profile'?'bean':'cup'}/>{t==='profile'?'Profile':isFilter?'Brews':'Shots'}</button>)}</nav>
   </header>
+  {copyNotice&&<div role="status" className="context-notice">{copyNotice}</div>}
   {error&&<div role="alert" className="error">{error}<button onClick={()=>setError('')} aria-label="Dismiss error">×</button></div>}
   {loading?<main className="loading-view"><LoadingLogbook/></main>:tab==='profile'?<ProfileView value={brewProfile} onChange={setBrewProfile} onSave={saveProfile} onLogout={onLogout} saving={saving}/>:tab==='shots'?<main className="shots-view">
    <div className="heading">
@@ -209,7 +215,7 @@ export default function App({onLogout}:{onLogout?:()=>void}){
    </div>
    <section className="coffee-panel" aria-label="Selected coffee">
     <div className="coffee-selection">
-     <div className="coffee-title-row"><label>CURRENT BAG / PORTION</label>{coffee&&<details className="compact-menu bag-menu"><summary aria-label="Coffee actions"><Icon name="more"/></summary><div className="compact-menu-panel" onClick={e=>{if((e.target as HTMLElement).closest('button'))e.currentTarget.closest('details')?.removeAttribute('open')}}><button className="text-button coffee-details" onClick={()=>{setNewBagSource(coffee.id);setCoffeeDraft(coffee)}}>New bag <Icon name="plus"/></button><button className="text-button coffee-details" onClick={()=>setCoffeeDraft(coffee)}>Bean details <Icon name="arrow"/></button><button className="text-button coffee-details" onClick={()=>setCoffeeDraft({name:'',roast_date:'',notes:'',revision:0})}><Icon name="plus"/>Add coffee</button></div></details>}</div>
+     <div className="coffee-title-row"><label>CURRENT BAG / PORTION</label>{coffee&&<details className="compact-menu bag-menu"><summary aria-label="Coffee actions"><Icon name="more"/></summary><div className="compact-menu-panel" onClick={e=>{if((e.target as HTMLElement).closest('button'))e.currentTarget.closest('details')?.removeAttribute('open')}}><button type="button" className="text-button coffee-details" disabled={copyingContext} onClick={()=>copyContext(coffee.id)}>{copyingContext?'Copying…':'Copy context'}</button><button className="text-button coffee-details" onClick={()=>{setNewBagSource(coffee.id);setCoffeeDraft(coffee)}}>New bag <Icon name="plus"/></button><button className="text-button coffee-details" onClick={()=>setCoffeeDraft(coffee)}>Bean details <Icon name="arrow"/></button><button className="text-button coffee-details" onClick={()=>setCoffeeDraft({name:'',roast_date:'',notes:'',revision:0})}><Icon name="plus"/>Add coffee</button></div></details>}</div>
      <details className="coffee-picker" ref={coffeePicker}>
       <summary aria-label="Choose current bag or portion"><span className="coffee-current-name">{coffee?coffeeDisplayName(coffee):'Choose coffee'}</span>{coffee?.tag_color&&<CoffeeMarker value={coffee.tag_color}/>}<span className="picker-chevron" aria-hidden="true">⌄</span></summary>
       <div className="coffee-options">
