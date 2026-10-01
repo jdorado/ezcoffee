@@ -1,7 +1,7 @@
 import type {BrewProfile,TrackedField} from './api'
 
 export const fieldLabels:Record<TrackedField,string>={
- water_temp_c:'Water temperature',water_g:'Water quantity',ice_g:'Ice quantity',dose:'Coffee dose',ratio:'Coffee-to-water ratio',grind:'Grind size',seconds:'Brew time',bloom_seconds:'Bloom time',yield_g:'Espresso output',stop_yield_g:'Stop yield',target_yield_g:'Target output',first_drip:'First drip',paper:'Paper filter',temp:'PID setting',pressure:'Pressure',basket:'Basket',puck_screen:'Puck screen',taste_balance:'Taste balance',rating:'Rating',taste:'Tasting notes & mouthfeel'
+ water_temp_c:'Water temperature',water_g:'Water quantity',ice_g:'Ice quantity',dose:'Coffee dose',ratio:'Coffee-to-water ratio',grind:'Grind size',seconds:'Brew time',bloom_seconds:'Bloom time',yield_g:'Espresso output',stop_yield_g:'Stop yield',target_yield_g:'Target output',first_drip:'First drip',paper:'Paper filter',temp:'PID setting',pressure:'Pressure',basket:'Basket',puck_screen:'Puck screen',taste_balance:'Taste balance',rating:'Rating',taste:'Tasting note'
 }
 
 export const allFields=Object.keys(fieldLabels) as TrackedField[]
