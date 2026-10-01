@@ -21,7 +21,7 @@ const change=(shots,d,value,edited,coffees=[])=>changeSettingDraft(shots,d,value
 const forEdit = new Function('s','profile',ts.transpile(`${defaults}\n${functions}\nreturn shotForEdit(s);`))
 const profile={defaults:{dose:14,grind:'8',paper:'yes',temp:'I',basket:'test basket',puckScreen:'yes'}}
 const old = {coffee_id:'a',status:'logged',date:'2026-09-09',recorded_at:'2026-09-09T01:00:00Z',dose:14,grind:'5',paper:'yes',temp:'I'}
-const latest = {...old,recorded_at:'2026-09-09T02:00:00Z',dose:15,grind:'6',paper:'no',temp:'0',basket:'test basket',puck_screen:'no',target_yield_g:30,stop_yield_g:30.5,yield_g:31,seconds:27,taste:'nice',rating:5,choked:true,id:'old',revision:3}
+const latest = {...old,recorded_at:'2026-09-09T02:00:00Z',dose:15,grind:'6',paper:'no',temp:'0',basket:'test basket',puck_screen:'no',target_yield_g:30,stop_yield_g:30.5,yield_g:31,seconds:27,taste:'nice',body:'full',texture:'grainy',rating:5,choked:true,id:'old',revision:3}
 const draft = create([old,latest,{...latest,coffee_id:'b',date:'2026-09-10'},{...latest,status:'planned',date:'2026-09-11'}],'a',profile)
 const planned = {...latest,status:'planned',date:'2026-09-11',recorded_at:undefined}
 const recorded = forEdit(planned,profile)
@@ -34,6 +34,8 @@ assert.equal(draft.yield_g,null)
 assert.equal(draft.stop_yield_g,null)
 assert.equal(draft.seconds,null)
 assert.equal(draft.taste,'')
+assert.equal(draft.body,'')
+assert.equal(draft.texture,'')
 assert.equal(draft.rating,undefined)
 assert.equal(draft.choked,undefined)
 assert.equal(draft.id,undefined)
@@ -58,6 +60,8 @@ assert.equal(fromPlan.draft.yield_g,null)
 assert.equal(fromPlan.draft.stop_yield_g,30)
 assert.equal(fromPlan.draft.seconds,null)
 assert.equal(fromPlan.draft.taste,'')
+assert.equal(fromPlan.draft.body,'')
+assert.equal(fromPlan.draft.texture,'')
 assert.equal(fromPlan.draft.rating,undefined)
 assert.equal(fromPlan.draft.choked,undefined)
 assert.equal(fromPlan.draft.id,undefined)

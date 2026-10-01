@@ -55,7 +55,7 @@ fields appear and the order in which you record them.
 - Coffee dose, water quantity, and automatically calculated brew ratio.
 - Water temperature, grind size, total brew time, and bloom time.
 - Optional ice quantity for iced pour-over.
-- Taste notes, result, and enjoyment rating.
+- Taste notes, body (light to full), texture (smooth to gritty), result, and enjoyment rating.
 
 ### Coffee library
 

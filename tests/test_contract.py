@@ -248,6 +248,35 @@ class CoffeeContract(unittest.TestCase):
   rows=[s['id'] for s in self.http.get('/state').json()['shots'] if s['coffee_id']==c['id']]
   self.assertEqual(rows,[second['id'],first['id']])
   self.assertEqual(self.http.post('/shots',json={'coffee_id':c['id'],'taste_balance':'too coarse'}).status_code,422)
+ def test_mouthfeel_is_optional_revisioned_and_available_in_context(self):
+  import json
+  from src.main import next_shot_candidates, shot_facts
+  coffee=self.http.post('/coffees',json={'name':'Mouthfeel test'}).json()
+  response=self.http.post('/shots',json={'coffee_id':coffee['id'],'date':'2026-10-01','dose':15,'water_g':250,'grind':'medium','body':'full','texture':'grainy','rating':4})
+  self.assertEqual(response.status_code,200,response.text)
+  brew=response.json()
+  edited=self.http.put('/shots/'+brew['id'],json={'coffee_id':coffee['id'],'revision':brew['revision'],'grind':'coarser'})
+  self.assertEqual(edited.status_code,200,edited.text)
+  current=edited.json()
+  self.assertEqual((current['body'],current['texture']),('full','grainy'))
+  self.assertEqual(self.http.put('/shots/'+brew['id'],json={'coffee_id':coffee['id'],'revision':brew['revision'],'body':'light'}).status_code,409)
+  saved=next(row for row in self.http.get('/state').json()['shots'] if row['id']==brew['id'])
+  self.assertEqual((saved['body'],saved['texture']),('full','grainy'))
+  records=json.loads(self.http.get('/coffees/'+coffee['id']+'/context').json()['text'].split('\n\n',1)[1])
+  for row in [records['recent_logged_shots'][0],next(row for row in records['reference_shots'] if row['coffee_id']==coffee['id']),next(row for row in records['coffee_overview'] if row['id']==coffee['id'])['recent_results'][0]]:
+   self.assertEqual((row['body'],row['texture']),('full','grainy'))
+  for field in ('body','texture'):
+   self.assertEqual(shot_facts({field:current[field]})['evidence'],'taste')
+   self.assertEqual(self.http.post('/shots',json={'coffee_id':coffee['id'],field:'unknown-value'}).status_code,422)
+   self.assertEqual(self.http.put('/shots/'+brew['id'],json={'coffee_id':coffee['id'],'revision':current['revision'],field:'unknown-value'}).status_code,422)
+  cleared=self.http.put('/shots/'+brew['id'],json={'coffee_id':coffee['id'],'revision':current['revision'],'body':''}).json()
+  self.assertEqual((cleared['body'],cleared['texture']),('','grainy'))
+  cleared=self.http.put('/shots/'+brew['id'],json={'coffee_id':coffee['id'],'revision':cleared['revision'],'texture':''}).json()
+  self.assertEqual((cleared['body'],cleared['texture']),('',''))
+  for candidate in next_shot_candidates(current).values():
+   self.assertEqual((candidate['plan']['body'],candidate['plan']['texture']),('',''))
+  older_payload=self.http.post('/shots',json={'coffee_id':coffee['id']}).json()
+  self.assertEqual((older_payload['body'],older_payload['texture']),('',''))
  @classmethod
  def setUpClass(cls):
   from unittest.mock import AsyncMock

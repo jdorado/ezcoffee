@@ -320,6 +320,9 @@ textarea { resize: vertical; font-family: var(--font-ui); }
 .tap-picker { flex: 1; }
 .tap-picker button { min-width: 42px; margin-right: 4px; }
 .feedback-row { margin-bottom: 12px; }
+.mouthfeel-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.mouthfeel-fields .taste-picker > div { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.shot-mouthfeel { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 10px; color: var(--muted); font-family: var(--font-mono); font-size: 10px; }
 .brew-switches.feedback-row { display: flex; align-items: flex-end; gap: 6px; flex-wrap: wrap; }
 .brew-switches.feedback-row .tap-picker { margin: 0; flex: 0 0 auto; }
 .brew-switches.feedback-row .tap-picker legend { font-size: 9px; margin-bottom: 4px; }
