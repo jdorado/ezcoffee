@@ -3,9 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "bash scripts/dev.sh",
-    "build": "npm --prefix coffee_app run build",
-    "test": "npm run test:api && npm run test:frontend",
+    "build": "pnpm --dir coffee_app run build",
+    "test": "pnpm run test:api && pnpm run test:frontend",
     "test:api": "coffee_api/.venv/bin/python -m unittest discover -s tests",
     "test:frontend": "node tests/test_new_shot.cjs && node tests/test_inline_edit.cjs && node tests/test_coffee_picker.cjs && node tests/test_roast_window.cjs && node tests/test_coffee_score.cjs && node tests/test_install_app.cjs && node tests/test_chat_retry.cjs && node tests/test_chat_render.cjs && node tests/test_bean_details.cjs && node tests/test_copy_context.cjs"
-  }
+  },
+  "packageManager": "pnpm@10.30.3"
 }

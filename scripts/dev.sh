@@ -34,7 +34,7 @@ for port in 8001 5176; do
 done
 (cd coffee_api && .venv/bin/python -m uvicorn src.main:app --host 127.0.0.1 --port 8001 --reload --reload-dir src) &
 pids+=("$!")
-npm --prefix coffee_app run dev &
+pnpm --dir coffee_app run dev &
 pids+=("$!")
 while true; do
  for pid in "${pids[@]}"; do kill -0 "$pid" 2>/dev/null || exit 1; done

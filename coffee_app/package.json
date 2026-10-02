@@ -31,5 +31,6 @@
   },
   "optionalDependencies": {
     "@privy-io/react-auth": "^3.40.0"
-  }
+  },
+  "packageManager": "pnpm@10.30.3"
 }

@@ -5,10 +5,10 @@ Publication and hosted deployment were approved by the maintainer on
 
 ## Automated checks
 
-- [x] `npm run build`
-- [x] `npm --prefix coffee_app audit --omit=dev --omit=optional`
+- [x] `pnpm run build`
+- [x] `pnpm --dir coffee_app audit --prod --no-optional`
 - [x] `uvx pip-audit -r coffee_api/requirements.txt`
-- [x] `npm test`
+- [x] `pnpm test`
 - [x] `docker compose config`
 - [x] `docker compose build`
 - [x] Fresh self-host startup reaches `/health` and the browser UI.

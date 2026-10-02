@@ -202,19 +202,19 @@ Python virtual environment at `coffee_api/.venv` and starts a loopback Mongo
 process when `MONGO_URL` is not set.
 
 ```sh
-npm --prefix coffee_app install
+pnpm --dir coffee_app install
 python3 -m venv coffee_api/.venv
 coffee_api/.venv/bin/pip install -r coffee_api/requirements.txt
 cp coffee_app/.env.example coffee_app/.env.local
-npm run dev
+pnpm run dev
 ```
 
 Frontend: [http://127.0.0.1:5176](http://127.0.0.1:5176). API:
 [http://127.0.0.1:8001](http://127.0.0.1:8001).
 
 ```sh
-npm run build
-npm test
+pnpm run build
+pnpm test
 ```
 
 Tests use an isolated Mongo database and must never point at personal records.
@@ -257,7 +257,7 @@ The maintainer-only migration profile is documented separately in
 Bug reports, focused improvements, and support for more coffee equipment or
 brew workflows are welcome. Keep contributions aligned with the project's
 small architecture and minimalist black-and-white interface. Please run
-`npm test` and `npm run build` before opening a pull request.
+`pnpm test` and `pnpm run build` before opening a pull request.
 
 Useful areas to improve include:
 

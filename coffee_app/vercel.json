@@ -1,7 +1,7 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "pnpm run build",
   "outputDirectory": "dist",
-  "installCommand": "npm ci",
+  "installCommand": "pnpm install --frozen-lockfile",
   "rewrites": [
     {
       "source": "/((?!assets/|icons/|sw\\.js$|manifest\\.webmanifest$|offline\\.html$).*)",
