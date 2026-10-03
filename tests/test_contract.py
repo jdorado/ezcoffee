@@ -15,6 +15,40 @@ from fastapi.testclient import TestClient
 from src.main import app, client
 
 class CoffeeContract(unittest.TestCase):
+ def test_enriched_chat_context_preserves_owner_feedback_and_same_bean_provenance(self):
+  import json
+  from pymongo import MongoClient
+  from src.main import chat_prompt, coaching_history, next_shot_candidates
+  bean=self.http.post('/beans',json={'name':'Context fixture beans'}).json()
+  bags=[self.http.post('/coffees',json={'name':bean['name'],'bean_id':bean['id']}).json() for _ in range(2)]
+  old=self.http.post('/shots',json={'coffee_id':bags[0]['id'],'dose':14.5,'grind':'8.5','yield_g':26.4,'seconds':48,'rating':4,'locked':True}).json()
+  self.http.put('/coffees/'+bags[0]['id'],json={**bags[0],'archived':True})
+  self.http.post('/shots',json={'coffee_id':bags[1]['id'],'dose':14.5,'grind':'8.5','stop_yield_g':25,'yield_g':26.4,'seconds':49,'rating':2,'taste_balance':'balanced'})
+  latest=self.http.post('/shots',json={'coffee_id':bags[1]['id'],'dose':14.5,'grind':'8.5','stop_yield_g':23,'yield_g':24.3,'seconds':45,'rating':3}).json()
+  with MongoClient(os.environ['MONGO_URL']) as mongo:
+   database=mongo[os.environ['MONGO_DB']]
+   database.messages.insert_many([
+    {'account_id':'test-owner','id':'context-step','coffee_id':bags[0]['id'],'role':'user','text':'My practical adjustment is 0.5 steps.'},
+    {'account_id':'test-owner','id':'context-taste','coffee_id':bags[1]['id'],'role':'user','text':'The shorter shot was much more enjoyable and balanced in milk.'},
+    {'account_id':'test-owner','id':'context-unrelated','coffee_id':'coffee-2','role':'user','text':'Unrelated coffee feedback.'},
+    {'account_id':'foreign-owner','id':'context-foreign','coffee_id':bags[1]['id'],'role':'user','text':'Private foreign feedback: use 0.01 steps.'}])
+  job={'account_id':'test-owner','id':'context-job','coffee_id':bags[1]['id'],'message':'What next?'}
+  records=json.loads(self.http.portal.call(chat_prompt,job))['current_records']
+  self.assertEqual(records['best_shot_for_coffee']['id'],latest['id'])
+  self.assertEqual(records['equipment_context']['grind_adjustment']['increment'],.5)
+  self.assertEqual(records['equipment_context']['grind_adjustment']['message_id'],'context-step')
+  self.assertEqual(records['next_shot_candidates']['finer']['plan']['grind'],'8.0')
+  self.assertEqual(records['next_shot_candidates']['coarser']['plan']['grind'],'9.0')
+  previous=next(row for row in records['same_bean_history'] if row['id']==old['id'])
+  self.assertEqual(previous['coffee_context']['bean_id'],bean['id'])
+  self.assertIn('balanced in milk',json.dumps(records['owner_reports']))
+  self.assertNotIn('foreign',json.dumps(records))
+  self.assertNotIn('Unrelated coffee feedback',json.dumps(records))
+  history=self.http.portal.call(coaching_history,job)
+  self.assertEqual([row['id'] for row in history],['context-step','context-taste'])
+  quarter=next_shot_candidates({'coffee_id':'fixture','grind':'8.5'},constraints={'grind_step':.25})
+  self.assertEqual(quarter['finer']['plan']['grind'],'8.25')
+  self.assertNotIn('finer',next_shot_candidates({'coffee_id':'fixture','grind':'8.5'}))
  def test_copy_context_matches_chat_records_and_stays_account_scoped(self):
   import json
   from src.main import chat_prompt
@@ -631,6 +665,9 @@ class CoffeeContract(unittest.TestCase):
   self.http.post('/shots',json={'coffee_id':coffee['id'],'date':'2026-09-02','dose':18,'grind':'5.0','stop_yield_g':34,'yield_g':36,'water_temp_c':93,'taste_balance':'sour','outcome':'adjust'})
   self.http.post('/shots',json={'coffee_id':coffee['id'],'date':'2026-09-03','dose':18,'grind':'4.9','yield_g':36,'water_temp_c':93,'taste_balance':'sour','outcome':'adjust'})
   self.http.post('/shots',json={'coffee_id':other['id'],'date':'2026-09-04','dose':16,'grind':'4.5','target_yield_g':32,'yield_g':32,'water_temp_c':94,'outcome':'good','rating':5,'reference':True})
+  from pymongo import MongoClient
+  with MongoClient(os.environ['MONGO_URL']) as mongo:
+   mongo[os.environ['MONGO_DB']].messages.insert_one({'account_id':'test-owner','id':'dial-owner-increment','coffee_id':coffee['id'],'role':'user','text':'My practical grind increment is 0.1 steps.'})
   payload=json.loads(self.http.portal.call(chat_prompt,{'account_id':'test-owner','id':'dial','message':'Plan my next shot for this coffee.','coffee_id':coffee['id']}))
   records=payload['current_records']
   # Each change is measured against the previous shot and reports the taste result.
@@ -661,8 +698,8 @@ class CoffeeContract(unittest.TestCase):
   self.assertFalse(records['dial_in_summary']['unresolved'])
   self.assertEqual([trial['grind'] for trial in records['dial_in_summary']['grind_trials']],['4.9','5.0','5.2'])
   self.assertIn('paper',records['reference_shots'][0])
-  self.assertIn('reference_shots',payload['dial_in_guidance'])
-  self.assertIn('dial_in_summary',payload['dial_in_guidance'])
+  self.assertIn('other-coffee references',payload['dial_in_guidance'])
+  self.assertIn('same_bean_history',payload['dial_in_guidance'])
   self.http.delete('/coffees/'+coffee['id']+'?revision=1')
   self.http.delete('/coffees/'+other['id']+'?revision=1')
  def test_next_shot_candidates_do_not_invert_target_range_from_a_short_measured_yield(self):
@@ -686,7 +723,7 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(shot_facts({'outcome':'unrated','dose':18})['evidence'],'settings')
   self.assertEqual(shot_facts({})['evidence'],'none')
   for outcome in ('bad','choked'):
-   candidates=next_shot_candidates({'coffee_id':'coffee-1','grind':'5.0','outcome':outcome})
+   candidates=next_shot_candidates({'coffee_id':'coffee-1','grind':'5.0','outcome':outcome},constraints={'grind_step':.5})
    self.assertNotIn('repeat',candidates)
    self.assertIn('finer',candidates)
   self.assertIn('repeat',next_shot_candidates({'coffee_id':'coffee-1','grind':'5.0','outcome':'adjust'}))

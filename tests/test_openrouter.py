@@ -65,11 +65,11 @@ class OpenRouterContract(unittest.TestCase):
         payload = build_payload('{"request":"help"}', history, self.settings())
         self.assertEqual(payload["model"], "provider/small-model")
         self.assertEqual(payload["provider"], {"require_parameters": True, "allow_fallbacks": True})
-        self.assertEqual(payload["reasoning"], {"effort": "low"})
+        self.assertEqual(payload["reasoning"], {"effort": "xhigh"})
         self.assertNotIn("max_tokens", payload)
         self.assertTrue(payload["response_format"]["json_schema"]["strict"])
-        self.assertEqual(len(payload["messages"]), 4)
-        self.assertEqual(payload["messages"][1]["content"], "message 8")
+        self.assertEqual(len(payload["messages"]), 12)
+        self.assertEqual(payload["messages"][1]["content"], "message 0")
         self.assertNotIn("unit-test-value", str(payload))
 
     def test_response_requires_assistant_text(self):
@@ -147,7 +147,7 @@ class OpenRouterContract(unittest.TestCase):
 
     def test_hosted_model_is_pinned_even_if_runtime_env_is_stale(self):
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test", "OPENROUTER_MODEL": "old/model"}, clear=False):
-            self.assertEqual(OpenRouterSettings.from_env().model, "deepseek/deepseek-v4.1-flash")
+            self.assertEqual(OpenRouterSettings.from_env().model, "meta/muse-spark-1.3-contributor")
 
 
 class ReplyRecovery(unittest.IsolatedAsyncioTestCase):
