@@ -343,13 +343,13 @@ class CoffeeContract(unittest.TestCase):
   from src.services.bridge import BridgeSettings
   async def complete(job):
    await src.main.db.jobs.update_one({'account_id':job['account_id'],'id':job['id']},{'$set':{'status':'complete'}})
-  with patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id='bridge-selection-owner'))):
+  with patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id='bridge-selection-owner'))),patch('src.main.OWNER_SUB','bridge-selection-owner'):
    with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','gpt-6.1-sol','http://bridge/v1')),patch('src.main.run_chat',complete):
     response=self.http.post('/chat',json={'id':'bridge-default-selection','message':'Hello'})
     self.assertEqual(response.status_code,200)
     self.assertEqual(response.json()['model'],'gpt-6.1-sol')
     self.assertEqual(response.json()['reasoning_effort'],'medium')
-    self.http.portal.call(complete,response.json())
+    self.http.portal.call(complete,{'account_id':'bridge-selection-owner','id':'bridge-default-selection'})
    # The accepted choice survives later server-default changes and idempotent reads.
    with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','claude-sonnet-5-5','http://bridge/v1','high')):
     saved=self.http.get('/chat/bridge-default-selection').json()
