@@ -336,22 +336,25 @@ class CoffeeContract(unittest.TestCase):
   cls.context.__exit__(None,None,None)
   import src.main
   src.main.verify_privy_access_token=cls.original_verifier
- def test_bridge_selection_is_persisted_for_retries(self):
-  from unittest.mock import patch
+ def test_z_bridge_selection_is_persisted_for_retries(self):
+  from unittest.mock import patch, AsyncMock
+  from types import SimpleNamespace
   import src.main
   from src.services.bridge import BridgeSettings
   async def complete(job):
    await src.main.db.jobs.update_one({'account_id':job['account_id'],'id':job['id']},{'$set':{'status':'complete'}})
-  with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','gpt-6.1-sol','http://bridge/v1')),patch('src.main.run_chat',complete):
-   response=self.http.post('/chat',json={'id':'bridge-default-selection','message':'Hello'})
-   self.assertEqual(response.status_code,200)
-   self.assertEqual(response.json()['model'],'gpt-6.1-sol')
-   self.assertEqual(response.json()['reasoning_effort'],'medium')
-  # The accepted choice survives later server-default changes and idempotent reads.
-  with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','claude-sonnet-5-5','http://bridge/v1','high')):
-   saved=self.http.get('/chat/bridge-default-selection').json()
-   self.assertEqual(saved['model'],'gpt-6.1-sol')
-   self.assertEqual(saved['reasoning_effort'],'medium')
+  with patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id='bridge-selection-owner'))):
+   with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','gpt-6.1-sol','http://bridge/v1')),patch('src.main.run_chat',complete):
+    response=self.http.post('/chat',json={'id':'bridge-default-selection','message':'Hello'})
+    self.assertEqual(response.status_code,200)
+    self.assertEqual(response.json()['model'],'gpt-6.1-sol')
+    self.assertEqual(response.json()['reasoning_effort'],'medium')
+    self.http.portal.call(complete,response.json())
+   # The accepted choice survives later server-default changes and idempotent reads.
+   with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','claude-sonnet-5-5','http://bridge/v1','high')):
+    saved=self.http.get('/chat/bridge-default-selection').json()
+    self.assertEqual(saved['model'],'gpt-6.1-sol')
+    self.assertEqual(saved['reasoning_effort'],'medium')
  def test_seed_preserves_plans_and_chronological_dates(self):
   state=self.http.get('/state').json()
   self.assertEqual(len([c for c in state['coffees'] if c['id'].startswith('coffee-')]),6)
@@ -482,7 +485,7 @@ class CoffeeContract(unittest.TestCase):
     self.assertEqual(self.http.get('/state',headers={'Authorization':'Bearer test'}).status_code,403)
    with patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id='owner'))):
     self.assertEqual(self.http.get('/state',headers={'Authorization':'Bearer test'}).status_code,200)
- def test_bridge_chat_uses_bounded_account_context(self):
+ def test_openrouter_chat_uses_bounded_account_context(self):
   import json
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
@@ -514,7 +517,7 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(saved['coffee_id'],'coffee-1')
   self.assertEqual(database.jobs.find_one({'account_id':'test-owner','id':job['id']})['status'],'complete')
   database.client.close()
- def test_rejected_bridge_action_preserves_records_and_reports_the_right_retry(self):
+ def test_rejected_openrouter_action_preserves_records_and_reports_the_right_retry(self):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
   from src.main import CHAT_ACTION_REJECTED, run_chat, state_for
@@ -606,7 +609,7 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(failed['receipts'],[])
   self.assertEqual(database.shots.count_documents({'account_id':'test-owner','coffee_id':'coffee-5','deleted_at':{'$exists':False}}),0)
   database.client.close()
- def test_bridge_failure_records_provider_and_stage(self):
+ def test_openrouter_failure_records_provider_and_stage(self):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
   from src.main import run_chat
@@ -744,7 +747,7 @@ class CoffeeContract(unittest.TestCase):
    self.assertNotIn('repeat',candidates)
    self.assertIn('finer',candidates)
   self.assertIn('repeat',next_shot_candidates({'coffee_id':'coffee-1','grind':'5.0','outcome':'adjust'}))
- def test_bridge_actions_use_canonical_account_scoped_writes(self):
+ def test_openrouter_actions_use_canonical_account_scoped_writes(self):
   from fastapi import HTTPException
   from pymongo import MongoClient
   from src.main import apply_inference_action
@@ -768,7 +771,7 @@ class CoffeeContract(unittest.TestCase):
   receipts=database.jobs.find_one({'account_id':'test-owner','id':job['id']})['receipts']
   self.assertEqual([receipt['kind'] for receipt in receipts],['coffee','coffee','shot','shot'])
   database.client.close()
- def test_bridge_action_repair_tolerates_model_slips(self):
+ def test_openrouter_action_repair_tolerates_model_slips(self):
   from fastapi import HTTPException
   from pymongo import MongoClient
   from src.main import apply_inference_action
