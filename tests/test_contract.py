@@ -336,6 +336,22 @@ class CoffeeContract(unittest.TestCase):
   cls.context.__exit__(None,None,None)
   import src.main
   src.main.verify_privy_access_token=cls.original_verifier
+ def test_bridge_selection_is_persisted_for_retries(self):
+  from unittest.mock import patch
+  import src.main
+  from src.services.bridge import BridgeSettings
+  async def complete(job):
+   await src.main.db.jobs.update_one({'account_id':job['account_id'],'id':job['id']},{'$set':{'status':'complete'}})
+  with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','gpt-6.1-sol','http://bridge/v1')),patch('src.main.run_chat',complete):
+   response=self.http.post('/chat',json={'id':'bridge-default-selection','message':'Hello'})
+   self.assertEqual(response.status_code,200)
+   self.assertEqual(response.json()['model'],'gpt-6.1-sol')
+   self.assertEqual(response.json()['reasoning_effort'],'medium')
+  # The accepted choice survives later server-default changes and idempotent reads.
+  with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','claude-sonnet-5-5','http://bridge/v1','high')):
+   saved=self.http.get('/chat/bridge-default-selection').json()
+   self.assertEqual(saved['model'],'gpt-6.1-sol')
+   self.assertEqual(saved['reasoning_effort'],'medium')
  def test_seed_preserves_plans_and_chronological_dates(self):
   state=self.http.get('/state').json()
   self.assertEqual(len([c for c in state['coffees'] if c['id'].startswith('coffee-')]),6)
