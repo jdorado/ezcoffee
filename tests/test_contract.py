@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 os.environ['APP_MODE']='personal'
 os.environ['COFFEE_AI_ENABLED']='true'
-os.environ['OPENROUTER_API_KEY']='test-key'
+os.environ['BRIDGE_API_KEY']='test-key'
+os.environ['BRIDGE_BASE_URL']='http://test-bridge/v1'
 os.environ['COFFEE_REQUIRE_AUTH']='true'
 os.environ['COFFEE_OWNER_SUB']='test-owner'
 os.environ['PRIVY_APP_ID']='test-app'
@@ -465,22 +466,22 @@ class CoffeeContract(unittest.TestCase):
     self.assertEqual(self.http.get('/state',headers={'Authorization':'Bearer test'}).status_code,403)
    with patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id='owner'))):
     self.assertEqual(self.http.get('/state',headers={'Authorization':'Bearer test'}).status_code,200)
- def test_openrouter_chat_uses_bounded_account_context(self):
+ def test_bridge_chat_uses_bounded_account_context(self):
   import json
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
   from src.main import run_chat
-  from src.services.openrouter import OpenRouterReply
+  from src.services.bridge import BridgeReply
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
-  job={'account_id':'test-owner','id':'openrouter-contract','message':'What should I change next?','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'queued','created_at':'2026-09-15T00:00:00+00:00','receipts':[]}
+  job={'account_id':'test-owner','id':'bridge-contract','message':'What should I change next?','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'queued','created_at':'2026-09-15T00:00:00+00:00','receipts':[]}
   database.jobs.insert_one(job)
   database.messages.insert_many([
    {'account_id':'test-owner','id':'same-coffee-user','coffee_id':'coffee-1','role':'user','text':'Earlier note for this coffee.'},
    {'account_id':'test-owner','id':'other-coffee-user','coffee_id':'coffee-2','role':'user','text':'Do not leak this other coffee.'},
    {'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-1','role':'user','text':job['message']},
   ])
-  reply=AsyncMock(return_value=OpenRouterReply(text='Try one small grind adjustment.',actions=[]))
-  with patch('src.main.openrouter_reply',reply):
+  reply=AsyncMock(return_value=BridgeReply(text='Try one small grind adjustment.',actions=[]))
+  with patch('src.main.bridge_reply',reply):
    self.http.portal.call(run_chat,job)
   prompt,history=reply.await_args.args
   context=json.loads(prompt)
@@ -497,17 +498,17 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(saved['coffee_id'],'coffee-1')
   self.assertEqual(database.jobs.find_one({'account_id':'test-owner','id':job['id']})['status'],'complete')
   database.client.close()
- def test_rejected_openrouter_action_preserves_records_and_reports_the_right_retry(self):
+ def test_rejected_bridge_action_preserves_records_and_reports_the_right_retry(self):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
   from src.main import CHAT_ACTION_REJECTED, run_chat, state_for
-  from src.services.openrouter import OpenRouterReply
+  from src.services.bridge import BridgeReply
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
-  job={'account_id':'test-owner','id':'rejected-openrouter-action','message':'Save this change.','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'queued','created_at':'2026-09-15T00:00:00+00:00','receipts':[]}
+  job={'account_id':'test-owner','id':'rejected-bridge-action','message':'Save this change.','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'queued','created_at':'2026-09-15T00:00:00+00:00','receipts':[]}
   database.jobs.insert_one(job)
   database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-1','role':'user','text':job['message']})
-  reply=AsyncMock(return_value=OpenRouterReply(text='Saved.',actions=[{'kind':'shot','id':None,'data':{'coffee_id':'missing-coffee'}}]))
-  with patch('src.main.openrouter_reply',reply):
+  reply=AsyncMock(return_value=BridgeReply(text='Saved.',actions=[{'kind':'shot','id':None,'data':{'coffee_id':'missing-coffee'}}]))
+  with patch('src.main.bridge_reply',reply):
    self.http.portal.call(run_chat,job)
   failed=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
   self.assertEqual(failed['status'],'failed')
@@ -528,14 +529,14 @@ class CoffeeContract(unittest.TestCase):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
   from src.main import run_chat
-  from src.services.openrouter import OpenRouterReply
+  from src.services.bridge import BridgeReply
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
   job={'account_id':'test-owner','id':'invented-plan-create','message':'first shot','coffee_id':'coffee-3','shot_date':'2026-09-21','status':'queued','created_at':'2026-09-21T00:00:00+00:00','receipts':[],'retry_count':0,'action_attempted':False}
   database.jobs.insert_one(job)
   database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-3','role':'user','text':job['message']})
   action={'kind':'shot','id':'planned-next-shot','data':{'coffee_id':'coffee-3','revision':0,'status':'planned','dose':14.5,'grind':'9'}}
-  reply=AsyncMock(return_value=OpenRouterReply(text='Plan saved.',actions=[action]))
-  with patch('src.main.openrouter_reply',reply):
+  reply=AsyncMock(return_value=BridgeReply(text='Plan saved.',actions=[action]))
+  with patch('src.main.bridge_reply',reply):
    self.http.portal.call(run_chat,job)
   done=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
   self.assertEqual(done['status'],'complete')
@@ -551,15 +552,15 @@ class CoffeeContract(unittest.TestCase):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
   from src.main import run_chat
-  from src.services.openrouter import OpenRouterReply
+  from src.services.bridge import BridgeReply
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
   plan=self.http.post('/shots',json={'coffee_id':'coffee-4','status':'planned','dose':14.5,'grind':'9'}).json()
   job={'account_id':'test-owner','id':'invented-plan-resync','message':'Plan my next shot for this coffee.','coffee_id':'coffee-4','shot_date':'2026-09-21','status':'queued','created_at':'2026-09-21T00:00:00+00:00','receipts':[],'retry_count':0,'action_attempted':False}
   database.jobs.insert_one(job)
   database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-4','role':'user','text':job['message']})
   action={'kind':'shot','id':'shot-1','data':{'coffee_id':'coffee-4','revision':0,'status':'planned','grind':'8'}}
-  reply=AsyncMock(return_value=OpenRouterReply(text='Updated the plan.',actions=[action]))
-  with patch('src.main.openrouter_reply',reply):
+  reply=AsyncMock(return_value=BridgeReply(text='Updated the plan.',actions=[action]))
+  with patch('src.main.bridge_reply',reply):
    self.http.portal.call(run_chat,job)
   done=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
   self.assertEqual(done['status'],'complete')
@@ -573,14 +574,14 @@ class CoffeeContract(unittest.TestCase):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
   from src.main import CHAT_ACTION_REJECTED, run_chat
-  from src.services.openrouter import OpenRouterReply
+  from src.services.bridge import BridgeReply
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
   job={'account_id':'test-owner','id':'invented-logged-id','message':'That shot was nice.','coffee_id':'coffee-5','shot_date':'2026-09-21','status':'queued','created_at':'2026-09-21T00:00:00+00:00','receipts':[],'retry_count':0,'action_attempted':False}
   database.jobs.insert_one(job)
   database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-5','role':'user','text':job['message']})
   action={'kind':'shot','id':'shot-1','data':{'coffee_id':'coffee-5','revision':1,'taste':'nice'}}
-  reply=AsyncMock(return_value=OpenRouterReply(text='Logged.',actions=[action]))
-  with patch('src.main.openrouter_reply',reply):
+  reply=AsyncMock(return_value=BridgeReply(text='Logged.',actions=[action]))
+  with patch('src.main.bridge_reply',reply):
    self.http.portal.call(run_chat,job)
   failed=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
   self.assertEqual(failed['status'],'failed')
@@ -589,17 +590,17 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(failed['receipts'],[])
   self.assertEqual(database.shots.count_documents({'account_id':'test-owner','coffee_id':'coffee-5','deleted_at':{'$exists':False}}),0)
   database.client.close()
- def test_openrouter_failure_records_provider_and_stage(self):
+ def test_bridge_failure_records_provider_and_stage(self):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
   from src.main import run_chat
-  from src.services.openrouter import OpenRouterError
+  from src.services.bridge import BridgeError
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
-  job={'account_id':'test-owner','id':'openrouter-provider-failure','message':'What should I change?','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'queued','created_at':'2026-09-15T00:00:00+00:00','receipts':[]}
+  job={'account_id':'test-owner','id':'bridge-provider-failure','message':'What should I change?','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'queued','created_at':'2026-09-15T00:00:00+00:00','receipts':[]}
   database.jobs.insert_one(job)
   database.messages.insert_one({'account_id':'test-owner','id':job['id']+'-user','coffee_id':'coffee-1','role':'user','text':job['message']})
-  reply=AsyncMock(side_effect=OpenRouterError('OpenRouter returned invalid structured output.',code='invalid_structured_output',provider='Parasail',finish_reason='stop',stage='parse'))
-  with patch('src.main.openrouter_reply',reply):
+  reply=AsyncMock(side_effect=BridgeError('Bridge returned invalid structured output.',code='invalid_structured_output',provider='Parasail',finish_reason='stop',stage='parse'))
+  with patch('src.main.bridge_reply',reply):
    self.http.portal.call(run_chat,job)
   failed=database.jobs.find_one({'account_id':'test-owner','id':job['id']})
   self.assertEqual(failed['status'],'failed')
@@ -727,12 +728,12 @@ class CoffeeContract(unittest.TestCase):
    self.assertNotIn('repeat',candidates)
    self.assertIn('finer',candidates)
   self.assertIn('repeat',next_shot_candidates({'coffee_id':'coffee-1','grind':'5.0','outcome':'adjust'}))
- def test_openrouter_actions_use_canonical_account_scoped_writes(self):
+ def test_bridge_actions_use_canonical_account_scoped_writes(self):
   from fastapi import HTTPException
   from pymongo import MongoClient
   from src.main import apply_inference_action
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
-  job={'account_id':'test-owner','id':'openrouter-write','shot_date':'2026-09-15'}
+  job={'account_id':'test-owner','id':'bridge-write','shot_date':'2026-09-15'}
   database.jobs.insert_one({**job,'status':'running','receipts':[]})
   coffee=self.http.portal.call(apply_inference_action,job,{'kind':'coffee','id':None,'data':{'name':'AI coffee','brand':'Test roaster'}})
   updated_coffee=self.http.portal.call(apply_inference_action,job,{'kind':'coffee','id':coffee['id'],'data':{'revision':coffee['revision'],'name':'Updated AI coffee'}})
@@ -751,12 +752,12 @@ class CoffeeContract(unittest.TestCase):
   receipts=database.jobs.find_one({'account_id':'test-owner','id':job['id']})['receipts']
   self.assertEqual([receipt['kind'] for receipt in receipts],['coffee','coffee','shot','shot'])
   database.client.close()
- def test_openrouter_action_repair_tolerates_model_slips(self):
+ def test_bridge_action_repair_tolerates_model_slips(self):
   from fastapi import HTTPException
   from pymongo import MongoClient
   from src.main import apply_inference_action
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
-  job={'account_id':'test-owner','id':'openrouter-repair','shot_date':'2026-09-15','coffee_id':'coffee-1'}
+  job={'account_id':'test-owner','id':'bridge-repair','shot_date':'2026-09-15','coffee_id':'coffee-1'}
   database.jobs.insert_one({**job,'status':'running','receipts':[]})
   row=self.http.portal.call(apply_inference_action,job,{'kind':'shot','id':None,'data':{'coffee_id':'coffee-1','dose':14,'taste':'repair base'}})
   # Missing revision is filled from the current record instead of 409.
@@ -826,7 +827,7 @@ class CoffeeContract(unittest.TestCase):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
   from src.main import run_chat
-  from src.services.openrouter import OpenRouterSettings
+  from src.services.bridge import BridgeSettings
   bag=self.http.post('/coffees',json={'name':'Inference recovery fixture','roast_date':'2026-09-20'}).json()
   with MongoClient(os.environ['MONGO_URL']) as mongo:
    database=mongo[os.environ['MONGO_DB']]
@@ -850,7 +851,7 @@ class CoffeeContract(unittest.TestCase):
      response=self.http.post('/chat',json=request)
     self.assertEqual(response.status_code,200,response.text)
     original_client=httpx.AsyncClient
-    with patch('src.services.openrouter.OpenRouterSettings.from_env',return_value=OpenRouterSettings('test','test','https://example.invalid')),patch('src.services.openrouter.httpx.AsyncClient',side_effect=lambda **kwargs:original_client(transport=httpx.MockTransport(respond),**kwargs)):
+    with patch('src.services.bridge.BridgeSettings.from_env',return_value=BridgeSettings('test','test','https://example.invalid')),patch('src.services.bridge.httpx.AsyncClient',side_effect=lambda **kwargs:original_client(transport=httpx.MockTransport(respond),**kwargs)):
      self.http.portal.call(run_chat,database.jobs.find_one({'id':job_id}))
     completed=self.http.get('/chat/'+job_id).json()
     self.assertEqual(completed['status'],'complete',completed)

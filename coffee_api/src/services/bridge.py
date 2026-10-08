@@ -1,22 +1,22 @@
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import httpx
 from .coaching_context import bounded_history, COACHING_GUIDANCE
 
 
-class OpenRouterConfigError(RuntimeError):
+class BridgeConfigError(RuntimeError):
     pass
 
 
-class OpenRouterError(RuntimeError):
+class BridgeError(RuntimeError):
     # Machine-readable failure kind persisted on the chat job so a lost
     # container log does not discard the real cause. Keep codes stable and
     # free of user data, credentials, prompts, or provider bodies.
-    def __init__(self, message: str, *, code: str = "openrouter_error", provider_status: int | None = None,
+    def __init__(self, message: str, *, code: str = "bridge_error", provider_status: int | None = None,
                  provider: str | None = None, finish_reason: str | None = None, stage: str | None = None):
         super().__init__(message)
         self.code = code
@@ -26,8 +26,8 @@ class OpenRouterError(RuntimeError):
         self.stage = stage
 
 
-class PlanSyncError(OpenRouterError):
-    def __init__(self, message: str = "OpenRouter recommended a new recipe without synchronizing the planned shot.", **kwargs: Any):
+class PlanSyncError(BridgeError):
+    def __init__(self, message: str = "Bridge recommended a new recipe without synchronizing the planned shot.", **kwargs: Any):
         super().__init__(message, code="plan_sync", **kwargs)
 
 
@@ -75,22 +75,25 @@ ASSISTANT_RESPONSE_SCHEMA = {
 
 
 @dataclass(frozen=True)
-class OpenRouterSettings:
+class BridgeSettings:
     api_key: str
     model: str
     base_url: str
+    reasoning_effort: str = "medium"
 
     @classmethod
-    def from_env(cls) -> "OpenRouterSettings":
-        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    def from_env(cls) -> "BridgeSettings":
+        api_key = os.getenv("BRIDGE_API_KEY", "").strip()
         if not api_key:
-            raise OpenRouterConfigError("OPENROUTER_API_KEY is required when hosted chat is enabled.")
-        # Pin the tested model in code so a stale runtime variable cannot
-        # silently move production to a different model.
+            raise BridgeConfigError("BRIDGE_API_KEY is required when hosted chat is enabled.")
+        base_url = os.getenv("BRIDGE_BASE_URL", "").strip().rstrip("/")
+        if not base_url:
+            raise BridgeConfigError("BRIDGE_BASE_URL is required when hosted chat is enabled.")
         return cls(
             api_key=api_key,
-            model="meta/muse-spark-1.3-contributor",
-            base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/"),
+            model=os.getenv("BRIDGE_MODEL", "gpt-6.1-sol").strip(),
+            base_url=base_url,
+            reasoning_effort=os.getenv("BRIDGE_REASONING_EFFORT", "medium").strip(),
         )
 
 
@@ -109,16 +112,11 @@ def build_messages(prompt: str, history: list[dict[str, str]]) -> list[dict[str,
     return messages
 
 
-def build_payload(prompt: str, history: list[dict[str, str]], settings: OpenRouterSettings) -> dict[str, Any]:
+def build_payload(prompt: str, history: list[dict[str, str]], settings: BridgeSettings) -> dict[str, Any]:
     return {
         "model": settings.model,
         "messages": build_messages(prompt, history),
-        "temperature": 0.2,
-        # Keep the model and reasoning setting aligned with the reviewed replay.
-        "reasoning": {"effort": "xhigh"},
-        # Route only to providers that honor the strict structured-output
-        # parameters. Providers otherwise may return plain Markdown.
-        "provider": {"require_parameters": True, "allow_fallbacks": True},
+        "reasoning_effort": settings.reasoning_effort,
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": "ezcoffee_reply", "strict": True, "schema": ASSISTANT_RESPONSE_SCHEMA},
@@ -127,12 +125,12 @@ def build_payload(prompt: str, history: list[dict[str, str]], settings: OpenRout
 
 
 @dataclass(frozen=True)
-class OpenRouterReply:
+class BridgeReply:
     text: str
     actions: list[dict[str, Any]]
 
 
-def response_result(payload: Any) -> OpenRouterReply:
+def response_result(payload: Any) -> BridgeReply:
     provider = payload.get("provider") if isinstance(payload, dict) else None
     if not isinstance(provider, str):
         provider = None
@@ -140,7 +138,7 @@ def response_result(payload: Any) -> OpenRouterReply:
         choice = payload["choices"][0]
         content = choice["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
-        raise OpenRouterError("OpenRouter returned an invalid response.", code="invalid_response", provider=provider, stage="envelope") from exc
+        raise BridgeError("Bridge returned an invalid response.", code="invalid_response", provider=provider, stage="envelope") from exc
     finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
     if not isinstance(finish_reason, str):
         finish_reason = None
@@ -148,43 +146,43 @@ def response_result(payload: Any) -> OpenRouterReply:
     if finish_reason == "length":
         # The provider stopped mid-JSON at the token cap. A parsed reply from
         # this completion would be visibly cut off, so fail instead.
-        raise OpenRouterError("OpenRouter stopped before the reply was complete.", code="output_truncated", **diag)
+        raise BridgeError("Bridge stopped before the reply was complete.", code="output_truncated", **diag)
     if isinstance(content, list):
         content = "".join(
             part.get("text", "") for part in content
             if isinstance(part, dict) and part.get("type") == "text"
         )
     if not isinstance(content, str) or not content.strip():
-        raise OpenRouterError("OpenRouter returned an empty response.", code="empty_response", stage="empty", **diag)
+        raise BridgeError("Bridge returned an empty response.", code="empty_response", stage="empty", **diag)
     try:
         result = json.loads(content)
     except ValueError as exc:
-        raise OpenRouterError("OpenRouter returned invalid structured output.", code="invalid_structured_output", stage="parse", **diag) from exc
+        raise BridgeError("Bridge returned invalid structured output.", code="invalid_structured_output", stage="parse", **diag) from exc
     if not isinstance(result, dict) or not isinstance(result.get("reply"), str) or not result["reply"].strip():
-        raise OpenRouterError("OpenRouter returned invalid structured output.", code="invalid_structured_output", stage="reply", **diag)
+        raise BridgeError("Bridge returned invalid structured output.", code="invalid_structured_output", stage="reply", **diag)
     # Whitespace and Markdown punctuation are not a user-facing answer.
     if not any(character.isalnum() for character in result["reply"]):
-        raise OpenRouterError("OpenRouter returned no meaningful reply.", code="empty_reply", stage="reply", **diag)
+        raise BridgeError("Bridge returned no meaningful reply.", code="empty_reply", stage="reply", **diag)
     raw_actions = result.get("actions")
     if not isinstance(raw_actions, list) or len(raw_actions) > 1 or not all(isinstance(action, dict) for action in raw_actions):
-        raise OpenRouterError("OpenRouter returned invalid structured output.", code="invalid_structured_output", stage="actions", **diag)
+        raise BridgeError("Bridge returned invalid structured output.", code="invalid_structured_output", stage="actions", **diag)
     actions=[]
     for action in raw_actions:
         if set(action) != {"kind", "id", "data_json"} or action.get("kind") not in {"coffee", "shot"}:
-            raise OpenRouterError("OpenRouter returned invalid structured output.", code="invalid_structured_output", stage="action", **diag)
+            raise BridgeError("Bridge returned invalid structured output.", code="invalid_structured_output", stage="action", **diag)
         if action.get("id") is not None and not isinstance(action["id"], str):
-            raise OpenRouterError("OpenRouter returned invalid structured output.", code="invalid_structured_output", stage="action_id", **diag)
+            raise BridgeError("Bridge returned invalid structured output.", code="invalid_structured_output", stage="action_id", **diag)
         try:
             data = json.loads(action.get("data_json", ""))
         except (TypeError, ValueError) as exc:
-            raise OpenRouterError("OpenRouter returned invalid structured output.", code="invalid_structured_output", stage="data_json", **diag) from exc
+            raise BridgeError("Bridge returned invalid structured output.", code="invalid_structured_output", stage="data_json", **diag) from exc
         if not isinstance(data, dict):
-            raise OpenRouterError("OpenRouter returned invalid structured output.", code="invalid_structured_output", stage="data_shape", **diag)
+            raise BridgeError("Bridge returned invalid structured output.", code="invalid_structured_output", stage="data_shape", **diag)
         actions.append({"kind": action["kind"], "id": action["id"], "data": data})
-    return OpenRouterReply(text=result["reply"].strip(), actions=actions)
+    return BridgeReply(text=result["reply"].strip(), actions=actions)
 
 
-def validate_plan_sync(prompt: str, result: OpenRouterReply) -> None:
+def validate_plan_sync(prompt: str, result: BridgeReply) -> None:
     try:
         payload = json.loads(prompt)
     except (AttributeError, TypeError, ValueError):
@@ -228,13 +226,14 @@ def validate_plan_sync(prompt: str, result: OpenRouterReply) -> None:
             raise PlanSyncError()
 
 
-async def openrouter_reply(prompt: str, history: list[dict[str, str]]) -> OpenRouterReply:
-    settings = OpenRouterSettings.from_env()
+async def bridge_reply(prompt: str, history: list[dict[str, str]], *,
+                       model: str | None = None, reasoning_effort: str | None = None) -> BridgeReply:
+    settings = BridgeSettings.from_env()
+    settings = replace(settings, model=model or settings.model,
+                       reasoning_effort=reasoning_effort or settings.reasoning_effort)
     headers = {
         "Authorization": f"Bearer {settings.api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://ezcoffee.space",
-        "X-Title": "ezcoffee",
     }
     try:
         # No client timeout: a reasoning reply may legitimately take minutes,
@@ -248,8 +247,8 @@ async def openrouter_reply(prompt: str, history: list[dict[str, str]]) -> OpenRo
                     json=request_payload,
                 )
                 if not response.is_success:
-                    raise OpenRouterError(
-                        f"OpenRouter request failed with status {response.status_code}.",
+                    raise BridgeError(
+                        f"Bridge request failed with status {response.status_code}.",
                         code="provider_error", provider_status=response.status_code,
                     )
                 try:
@@ -258,9 +257,9 @@ async def openrouter_reply(prompt: str, history: list[dict[str, str]]) -> OpenRo
                     validate_plan_sync(prompt, result)
                     return result
                 except ValueError as exc:
-                    error = OpenRouterError("OpenRouter returned an invalid response.", code="invalid_response")
+                    error = BridgeError("Bridge returned an invalid response.", code="invalid_response")
                     error.__cause__ = exc
-                except OpenRouterError as exc:
+                except BridgeError as exc:
                     error = exc
                 if attempt or error.code not in {
                     "empty_response", "empty_reply", "invalid_response",
@@ -279,4 +278,4 @@ async def openrouter_reply(prompt: str, history: list[dict[str, str]]) -> OpenRo
                 }]}
 
     except httpx.HTTPError as exc:
-        raise OpenRouterError("Could not reach OpenRouter.", code="unreachable") from exc
+        raise BridgeError("Could not reach Bridge.", code="unreachable") from exc

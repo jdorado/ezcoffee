@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'coffee_api'))
 from dotenv import load_dotenv
 load_dotenv(ROOT / '.env')
-from src.services.openrouter import SYSTEM_PROMPT, ASSISTANT_RESPONSE_SCHEMA, response_result, validate_plan_sync
+from src.services.bridge import SYSTEM_PROMPT, ASSISTANT_RESPONSE_SCHEMA, response_result, validate_plan_sync
 
 DEFAULT_DIR = ROOT / 'data/coach-benchmark'
 

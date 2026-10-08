@@ -3,6 +3,8 @@
 Keep the product small: React/TypeScript, FastAPI, and MongoDB, with two records
 only—coffees and shots. The public `selfhost` profile has no auth, billing, or AI.
 Private deployment capabilities must stay opt-in and profile-driven.
+Hosted AI uses the private Ezenciel CLI bridge; credentials stay API-only.
+The bridge owns supported model/effort combinations and native structured output.
 
 Mongo coffees and shots are canonical and revisioned. Reject stale edits. Do
 not persist browser snapshots. Recipe reuse copies inputs only, never measured

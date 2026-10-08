@@ -1,7 +1,7 @@
 # Personal profile
 
 The personal profile is the maintainer's private, owner-authenticated
-deployment. It shares the hosted AI backend (OpenRouter) and keeps every
+deployment. It shares the hosted AI backend (the private CLI bridge) and keeps every
 machine, account, credential, and live URL out of the public defaults. The
 original private repository remains authoritative until a capability is
 deliberately migrated and accepted here.
@@ -14,7 +14,7 @@ It is not required for self-hosting and is not a supported hosted AI product.
 2. Fill in the private API environment path, port, and database name.
 3. Keep the referenced API environment file outside this repo.
 
-The API environment must provide `MONGO_URL`, `OPENROUTER_API_KEY`, and Privy
+The API environment must provide `MONGO_URL`, `BRIDGE_BASE_URL`, `BRIDGE_API_KEY`, and Privy
 credentials plus an exact `COFFEE_OWNER_SUB`. The browser build separately needs
 `APP_MODE=personal`, `CHAT_ENABLED=true`, `PRIVY_APP_ID`, `API_BASE_URL`, and any
 desired equipment defaults.

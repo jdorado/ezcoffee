@@ -192,8 +192,8 @@ profiles, not requirements for self-hosting.
 | Profile | Intended use | Authentication | Coffee assistant |
 | --- | --- | --- | --- |
 | `selfhost` | Your own local installation | None by default | Off |
-| `hosted` | Free multi-user service | Privy | OpenRouter for every registered user |
-| `personal` | Maintainer's private deployment | Owner-only Privy | OpenRouter |
+| `hosted` | Free multi-user service | Privy | the private CLI bridge for every registered user |
+| `personal` | Maintainer's private deployment | Owner-only Privy | the private CLI bridge |
 
 ## Local development
 
@@ -242,13 +242,19 @@ sudo install -m 600 profiles/production.env.example /etc/ezcoffee/production.env
 docker compose --env-file /etc/ezcoffee/production.env -f compose.yml up -d --build --wait
 ```
 
-Hosted chat uses OpenRouter's `meta/muse-spark-1.3-contributor` at `xhigh`
-reasoning with structured
-outputs required and provider fallback enabled. Operators keep
-`OPENROUTER_API_KEY` in the protected API runtime environment. The browser
-never receives it. See
-[profiles/hosted.env.example](profiles/hosted.env.example) for placeholders and
-[PUBLICATION_SCOPE.md](PUBLICATION_SCOPE.md) for the release boundaries.
+Hosted chat uses the private Ezenciel CLI bridge, defaulting to `gpt-6.1-sol`
+at `medium` effort with native structured output. Operators configure
+`BRIDGE_API_KEY`, `BRIDGE_BASE_URL`, `BRIDGE_MODEL`, and
+`BRIDGE_REASONING_EFFORT` in the protected API runtime environment. The browser
+never receives the bridge key. The VM API joins the existing private
+`stocks-bridge-net`; the public self-host profile requires no bridge.
+
+Authenticated `/chat` callers may optionally send `model` and
+`reasoning_effort`, including `claude-sonnet-5-5`. The bridge's `/v1/models`
+endpoint owns the supported model/effort catalogue and rejects unsupported
+combinations. Retries preserve the original selection.
+See [profiles/hosted.env.example](profiles/hosted.env.example) for placeholders
+and [PUBLICATION_SCOPE.md](PUBLICATION_SCOPE.md) for release boundaries.
 
 The maintainer-only migration profile is documented separately in
 [docs/PERSONAL_PROFILE.md](docs/PERSONAL_PROFILE.md).
@@ -278,7 +284,7 @@ custom brew setups.
 ### Do I need an AI key?
 
 No. The self-hosted coffee journal works without AI. The hosted service uses
-its own server-side OpenRouter key for registered users.
+its own server-side the private CLI bridge key for registered users.
 
 ### Can I use SQLite instead of MongoDB?
 

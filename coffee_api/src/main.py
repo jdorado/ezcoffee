@@ -18,7 +18,7 @@ load_dotenv(ROOT/'.env')
 load_dotenv(ROOT/'coffee_api/.env.local')
 from src.services.privy_auth import verify_privy_access_token, PrivyAuthError, PrivyConfigError
 from src.services.coaching_context import HISTORY_MESSAGES, COACHING_GUIDANCE, family_coffee_ids, enrich_records, owner_grind_adjustment, preferred_shot
-from src.services.openrouter import OpenRouterConfigError, OpenRouterError, OpenRouterSettings, PlanSyncError, openrouter_reply
+from src.services.bridge import BridgeConfigError, BridgeError, BridgeSettings, PlanSyncError, bridge_reply
 APP_MODE = os.getenv('APP_MODE', 'selfhost').strip().lower()
 if APP_MODE not in {'selfhost', 'hosted', 'personal'}:
     raise RuntimeError('APP_MODE must be selfhost, hosted, or personal')
@@ -35,15 +35,15 @@ logger = logging.getLogger(__name__)
 CHAT_ACTION_REJECTED = 'Coffee chat could not safely apply that change. Your existing records are safe. Please send it again to retry.'
 PLAN_SYNC_MESSAGE = 'The reply suggested a new recipe but the planned shot was not updated. Please send it again to retry.'
 CHAT_RETRY_LIMIT = 3
-def openrouter_failure_code(exc):
+def bridge_failure_code(exc):
     code=getattr(exc,'code',None)
     if isinstance(code,str) and code:
         return code
     if isinstance(exc,PlanSyncError):
         return 'plan_sync'
-    if isinstance(exc,OpenRouterConfigError):
-        return 'openrouter_config'
-    return 'openrouter_error'
+    if isinstance(exc,BridgeConfigError):
+        return 'bridge_config'
+    return 'bridge_error'
 def now(): return datetime.now(timezone.utc).isoformat()
 async def report_activity(account_id, email=None, name=None, event='app_open'):
     if not ANALYTICS_URL or not ANALYTICS_TOKEN or account_id == SELFHOST_ACCOUNT: return
@@ -142,8 +142,8 @@ async def lifespan(app):
     if APP_MODE == 'selfhost' and AI_ENABLED:
         raise RuntimeError('The selfhost profile does not include AI')
     if AI_ENABLED:
-        try: OpenRouterSettings.from_env()
-        except OpenRouterConfigError as exc: raise RuntimeError(str(exc)) from exc
+        try: BridgeSettings.from_env()
+        except BridgeConfigError as exc: raise RuntimeError(str(exc)) from exc
     if APP_MODE in {'hosted','personal'} and not REQUIRE_AUTH:
         raise RuntimeError('Hosted and personal profiles require authentication')
     if APP_MODE == 'personal' and not OWNER_SUB:
@@ -622,6 +622,8 @@ class Chat(BaseModel):
     coffee_id:str|None=None
     shot_date:str=''
     intent:Literal['chat','plan']='chat'
+    model:str|None=Field(default=None,min_length=1,max_length=100)
+    reasoning_effort:Literal['low','medium','high','xhigh','max','ultra']|None=None
 
     @model_validator(mode='after')
     def valid_shot_date(self):
@@ -641,7 +643,7 @@ async def chat(data:Chat,request:Request):
     if previous:return clean(previous)
     if not data.message.strip():raise HTTPException(422,'Enter a message')
     if await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}}):raise HTTPException(409,'A chat reply is already running.')
-    job={'account_id':account_id,'id':data.id,'message':data.message,'intent':data.intent,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[],'retry_count':0,'action_attempted':False}
+    job={'account_id':account_id,'id':data.id,'message':data.message,'intent':data.intent,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[],'retry_count':0,'action_attempted':False,'model':data.model,'reasoning_effort':data.reasoning_effort}
     await db.jobs.insert_one(job)
     await db.messages.insert_one({'account_id':account_id,'id':data.id+'-user','coffee_id':data.coffee_id,'role':'user','text':data.message})
     task=asyncio.create_task(run_chat(job));tasks.add(task);task.add_done_callback(tasks.discard)
@@ -799,7 +801,8 @@ async def run_chat(job):
         await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'running','phase':'reviewing'}})
         prompt=await chat_prompt(job)
         history=await coaching_history(job)
-        result=await openrouter_reply(prompt,history)
+        options={key:job[key] for key in ('model','reasoning_effort') if job.get(key)}
+        result=await bridge_reply(prompt,history,**options)
         saved_plan=None
         if result.actions:
             # A write may succeed before its receipt is recorded. Mark the
@@ -816,7 +819,7 @@ async def run_chat(job):
             # on the job so the cause survives a replaced container too.
             # Only record kind/id plus the validation error — never the
             # payload, which carries user taste notes.
-            logger.warning('Rejected OpenRouter action for chat job %s (%s kind=%s id=%s error=%s)',job['id'],type(exc).__name__,action.get('kind'),action.get('id'),str(exc)[:200])
+            logger.warning('Rejected Bridge action for chat job %s (%s kind=%s id=%s error=%s)',job['id'],type(exc).__name__,action.get('kind'),action.get('id'),str(exc)[:200])
             detail=f'{type(exc).__name__} kind={action.get("kind")} id={action.get("id")}: {str(exc)[:200]}'
             await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'failed','error':CHAT_ACTION_REJECTED,'error_code':'action_rejected','error_detail':detail,'failed_at':now()}})
             return
@@ -825,8 +828,8 @@ async def run_chat(job):
         reply=result.text
         await db.messages.update_one({'account_id':account_id,'id':job['id']+'-assistant'},{'$setOnInsert':{'account_id':account_id,'id':job['id']+'-assistant','coffee_id':job.get('coffee_id'),'role':'assistant','text':reply}},upsert=True)
         await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'complete','phase':'ready','saved_plan':saved_plan}})
-    except (OpenRouterConfigError, OpenRouterError) as exc:
-        code=openrouter_failure_code(exc)
+    except (BridgeConfigError, BridgeError) as exc:
+        code=bridge_failure_code(exc)
         provider_status=getattr(exc,'provider_status',None)
         provider=getattr(exc,'provider',None)
         finish_reason=getattr(exc,'finish_reason',None)
@@ -835,7 +838,7 @@ async def run_chat(job):
         # code plus which provider returned what is persisted so a replaced
         # container does not discard the real cause. Never persist prompts,
         # history, payloads, or credentials here.
-        logger.warning('OpenRouter chat job %s failed (code=%s status=%s provider=%s finish_reason=%s stage=%s): %s',job['id'],code,provider_status,provider,finish_reason,stage,str(exc)[:200])
+        logger.warning('Bridge chat job %s failed (code=%s status=%s provider=%s finish_reason=%s stage=%s): %s',job['id'],code,provider_status,provider,finish_reason,stage,str(exc)[:200])
         error = PLAN_SYNC_MESSAGE if isinstance(exc, PlanSyncError) else 'Coffee chat is temporarily unavailable. Please try again.'
         detail=' '.join(part for part in (
             f'{type(exc).__name__} code={code}',
@@ -935,7 +938,7 @@ async def apply_inference_action(job,action):
         if key is not None:
             if not existing: raise HTTPException(404,'Record not found')
             repairs=repair_inference_data(action['kind'],data,job,existing)
-            if repairs: logger.info('Repaired OpenRouter action for chat job %s kind=%s (%s)',job['id'],action['kind'],','.join(repairs))
+            if repairs: logger.info('Repaired Bridge action for chat job %s kind=%s (%s)',job['id'],action['kind'],','.join(repairs))
             revision=data.get('revision')
             if isinstance(revision,bool) or not isinstance(revision,int) or revision!=existing.get('revision'):
                 raise HTTPException(409,'The record changed. Ask again using the latest logbook state.')
@@ -944,10 +947,10 @@ async def apply_inference_action(job,action):
         else:
             # Invented plan id with no existing plan became a create above.
             repairs=repair_inference_data(action['kind'],data,job,None)
-            if repairs: logger.info('Repaired OpenRouter action for chat job %s kind=%s (%s)',job['id'],action['kind'],','.join(repairs))
+            if repairs: logger.info('Repaired Bridge action for chat job %s kind=%s (%s)',job['id'],action['kind'],','.join(repairs))
     else:
         repairs=repair_inference_data(action['kind'],data,job,None)
-        if repairs: logger.info('Repaired OpenRouter action for chat job %s kind=%s (%s)',job['id'],action['kind'],','.join(repairs))
+        if repairs: logger.info('Repaired Bridge action for chat job %s kind=%s (%s)',job['id'],action['kind'],','.join(repairs))
     if action['kind']=='shot':
         if key is None and not data.get('date'): data['date']=job.get('shot_date',now()[:10])
         row=await write_shot(key or str(uuid.uuid4()),Shot(**data),account_id)

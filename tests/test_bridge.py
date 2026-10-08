@@ -8,20 +8,20 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "coffee_api"))
 
-from src.services.openrouter import (
+from src.services.bridge import (
     SYSTEM_PROMPT,
-    OpenRouterConfigError,
-    OpenRouterError,
-    OpenRouterSettings,
+    BridgeConfigError,
+    BridgeError,
+    BridgeSettings,
     PlanSyncError,
     build_payload,
     response_result,
-    openrouter_reply,
+    bridge_reply,
     validate_plan_sync,
 )
 
 
-class OpenRouterContract(unittest.TestCase):
+class BridgeContract(unittest.TestCase):
     def test_concrete_next_recipe_updates_the_existing_plan(self):
         self.assertIn('same planned record', SYSTEM_PROMPT)
         self.assertIn('Never create a second planned shot', SYSTEM_PROMPT)
@@ -51,7 +51,7 @@ class OpenRouterContract(unittest.TestCase):
         self.assertIn('authoritative cross-coffee and equipment context', SYSTEM_PROMPT)
 
     def settings(self):
-        return OpenRouterSettings(
+        return BridgeSettings(
             api_key="unit-test-value",
             model="provider/small-model",
             base_url="https://example.invalid/api/v1",
@@ -64,8 +64,8 @@ class OpenRouterContract(unittest.TestCase):
         ]
         payload = build_payload('{"request":"help"}', history, self.settings())
         self.assertEqual(payload["model"], "provider/small-model")
-        self.assertEqual(payload["provider"], {"require_parameters": True, "allow_fallbacks": True})
-        self.assertEqual(payload["reasoning"], {"effort": "xhigh"})
+        self.assertNotIn("provider", payload)
+        self.assertEqual(payload["reasoning_effort"], "medium")
         self.assertNotIn("max_tokens", payload)
         self.assertTrue(payload["response_format"]["json_schema"]["strict"])
         self.assertEqual(len(payload["messages"]), 12)
@@ -76,7 +76,7 @@ class OpenRouterContract(unittest.TestCase):
         result = response_result({"choices": [{"message": {"content": '{"reply":"Try a finer grind.","actions":[]}'}}]})
         self.assertEqual(result.text, "Try a finer grind.")
         self.assertEqual(result.actions, [])
-        with self.assertRaises(OpenRouterError):
+        with self.assertRaises(BridgeError):
             response_result({"choices": []})
 
     def test_structured_action_data_is_parsed_before_validation(self):
@@ -88,7 +88,7 @@ class OpenRouterContract(unittest.TestCase):
         stale = response_result({"choices": [{"message": {"content": '{"reply":"Next test: grind finer. Change only the grind.","actions":[]}'}}]})
         with self.assertRaises(PlanSyncError):
             validate_plan_sync(prompt, stale)
-        with self.assertRaises(OpenRouterError):
+        with self.assertRaises(BridgeError):
             validate_plan_sync(prompt, stale)
         synced = response_result({"choices": [{"message": {"content": '{"reply":"Next test: grind finer.","actions":[{"kind":"shot","id":"plan-1","data_json":"{\\"revision\\":4,\\"grind\\":\\"8.5\\",\\"status\\":\\"planned\\"}"}]}'}}]})
         validate_plan_sync(prompt, synced)
@@ -126,31 +126,46 @@ class OpenRouterContract(unittest.TestCase):
         self.assertIn('ratio', description)
 
     def test_enabled_configuration_requires_a_server_key(self):
-        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False):
-            with self.assertRaises(OpenRouterConfigError):
-                OpenRouterSettings.from_env()
+        with patch.dict(os.environ, {"BRIDGE_API_KEY": ""}, clear=False):
+            with self.assertRaises(BridgeConfigError):
+                BridgeSettings.from_env()
 
     def test_truncated_completion_is_rejected(self):
-        with self.assertRaises(OpenRouterError) as raised:
+        with self.assertRaises(BridgeError) as raised:
             response_result({"provider": "Parasail", "choices": [{"finish_reason": "length", "message": {"content": '{"reply":"Channeling here is likely the'}}]})
         self.assertEqual(raised.exception.code, "output_truncated")
         self.assertEqual(raised.exception.provider, "Parasail")
         self.assertEqual(raised.exception.finish_reason, "length")
 
     def test_invalid_structured_output_reports_provider_and_stage(self):
-        with self.assertRaises(OpenRouterError) as raised:
+        with self.assertRaises(BridgeError) as raised:
             response_result({"provider": "Parasail", "choices": [{"finish_reason": "stop", "message": {"content": "not json"}}]})
         self.assertEqual(raised.exception.code, "invalid_structured_output")
         self.assertEqual(raised.exception.provider, "Parasail")
         self.assertEqual(raised.exception.finish_reason, "stop")
         self.assertEqual(raised.exception.stage, "parse")
 
-    def test_hosted_model_is_pinned_even_if_runtime_env_is_stale(self):
-        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test", "OPENROUTER_MODEL": "old/model"}, clear=False):
-            self.assertEqual(OpenRouterSettings.from_env().model, "meta/muse-spark-1.3-contributor")
+    def test_bridge_model_and_effort_are_configurable(self):
+        with patch.dict(os.environ, {"BRIDGE_API_KEY": "test", "BRIDGE_BASE_URL": "http://bridge/v1", "BRIDGE_MODEL": "claude-sonnet-5-5", "BRIDGE_REASONING_EFFORT": "high"}, clear=False):
+            self.assertEqual(BridgeSettings.from_env().model, "claude-sonnet-5-5")
+            self.assertEqual(BridgeSettings.from_env().reasoning_effort, "high")
 
 
 class ReplyRecovery(unittest.IsolatedAsyncioTestCase):
+    async def test_request_selection_is_forwarded_to_bridge(self):
+        calls = []
+        def respond(request):
+            calls.append(json.loads(request.content))
+            self.assertEqual(request.headers['Authorization'], 'Bearer unit-bridge-secret')
+            return httpx.Response(200, json={'provider':'claude','choices':[{'message':{'content':'{"reply":"Use a 1:2 ratio.","actions":[]}'}}]})
+        original_client = httpx.AsyncClient
+        with patch('src.services.bridge.BridgeSettings.from_env', return_value=BridgeSettings('unit-bridge-secret','gpt-6.1-sol','http://bridge/v1')), patch('src.services.bridge.httpx.AsyncClient', side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
+            result = await bridge_reply('{}', [], model='claude-sonnet-5-5', reasoning_effort='high')
+        self.assertEqual(calls[0]['model'], 'claude-sonnet-5-5')
+        self.assertEqual(calls[0]['reasoning_effort'], 'high')
+        self.assertNotIn('unit-bridge-secret', json.dumps(calls[0]))
+        self.assertEqual(result.text, 'Use a 1:2 ratio.')
+
     async def test_punctuation_retries_once_before_returning_action(self):
         calls = []
         action = {"kind": "shot", "id": None, "data_json": json.dumps({"coffee_id": "bag", "status": "planned", "grind": "5.5"})}
@@ -159,8 +174,8 @@ class ReplyRecovery(unittest.IsolatedAsyncioTestCase):
             text = "..." if len(calls) == 1 else "Keep the grind at **5.5**; the last shot was balanced."
             return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({"reply": text, "actions": [action]})}}]})
         original_client = httpx.AsyncClient
-        with patch("src.services.openrouter.OpenRouterSettings.from_env", return_value=OpenRouterSettings("test", "test", "https://example.invalid")), patch("src.services.openrouter.httpx.AsyncClient", side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
-            result = await openrouter_reply(json.dumps({"intent": "plan", "selected_coffee_id": "bag", "current_records": {}}), [])
+        with patch("src.services.bridge.BridgeSettings.from_env", return_value=BridgeSettings("test", "test", "https://example.invalid")), patch("src.services.bridge.httpx.AsyncClient", side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
+            result = await bridge_reply(json.dumps({"intent": "plan", "selected_coffee_id": "bag", "current_records": {}}), [])
         self.assertEqual(len(calls), 2)
         self.assertEqual(len(result.actions), 1)
         self.assertIn("5.5", result.text)
@@ -172,23 +187,23 @@ class ReplyRecovery(unittest.IsolatedAsyncioTestCase):
             calls.append(request)
             return httpx.Response(200, json={"choices": [{"message": {"content": '{"reply":"…","actions":[]}'}}]})
         original_client = httpx.AsyncClient
-        with patch("src.services.openrouter.OpenRouterSettings.from_env", return_value=OpenRouterSettings("test", "test", "https://example.invalid")), patch("src.services.openrouter.httpx.AsyncClient", side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
-            with self.assertRaises(OpenRouterError) as raised:
-                await openrouter_reply('{}', [])
+        with patch("src.services.bridge.BridgeSettings.from_env", return_value=BridgeSettings("test", "test", "https://example.invalid")), patch("src.services.bridge.httpx.AsyncClient", side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
+            with self.assertRaises(BridgeError) as raised:
+                await bridge_reply('{}', [])
         self.assertEqual(raised.exception.code, "empty_reply")
         self.assertEqual(len(calls), 2)
 
     def test_plan_intent_requires_selected_plan_action(self):
-        from src.services.openrouter import OpenRouterReply
+        from src.services.bridge import BridgeReply
         prompt = json.dumps({"intent": "plan", "selected_coffee_id": "bag", "current_records": {"planned_next_shot": {"id": "plan"}}})
         for action in [None, {"kind": "shot", "id": "wrong", "data": {"status": "planned"}}, {"kind": "shot", "id": "plan", "data": {"status": "logged"}}, {"kind": "shot", "id": "plan", "data": {"coffee_id": "other"}}]:
             with self.assertRaises(PlanSyncError):
-                validate_plan_sync(prompt, OpenRouterReply("Recipe ready.", [] if action is None else [action]))
-        validate_plan_sync(prompt, OpenRouterReply("Keep the same recipe.", [{"kind": "shot", "id": "plan", "data": {"grind": "5.5", "revision": 2}}]))
+                validate_plan_sync(prompt, BridgeReply("Recipe ready.", [] if action is None else [action]))
+        validate_plan_sync(prompt, BridgeReply("Keep the same recipe.", [{"kind": "shot", "id": "plan", "data": {"grind": "5.5", "revision": 2}}]))
 
     def test_markdown_only_replies_are_rejected(self):
         for text in ['...', '…', '** **', '---', '#', '   ']:
-            with self.assertRaises(OpenRouterError):
+            with self.assertRaises(BridgeError):
                 response_result({"choices": [{"message": {"content": json.dumps({"reply": text, "actions": []})}}]})
 
 if __name__ == "__main__":

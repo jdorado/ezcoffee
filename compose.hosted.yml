@@ -10,12 +10,20 @@ services:
     environment:
       APP_MODE: hosted
       COFFEE_REQUIRE_AUTH: "true"
+      BRIDGE_BASE_URL: http://codex-openai-proxy:8100/v1
       COFFEE_CORS_ORIGINS: https://ezcoffee.space,https://www.ezcoffee.space,http://127.0.0.1:5176,http://localhost:5176
     ports:
       - "127.0.0.1:${EZCOFFEE_API_PORT:-18085}:8080"
     restart: unless-stopped
+    networks:
+      - default
+      - stocks-bridge-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=5)"]
       interval: 10s
       timeout: 6s
       retries: 12
+
+networks:
+  stocks-bridge-net:
+    external: true
