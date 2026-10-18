@@ -540,23 +540,10 @@ async def write_shot(key,data,account_id):
     if coffee.get('source_coffee_id'):
         parent=await db.coffees.find_one({'account_id':account_id,'id':coffee['source_coffee_id'],'deleted_at':{'$exists':False}})
         if not parent: raise HTTPException(404,'Bag not found')
-        coffee.update(roast_date=parent.get('roast_date',''),freeze_date=parent.get('freeze_date',''))
     if data.date:
         try: datetime.fromisoformat(data.date.replace('Z','+00:00'))
         except ValueError: raise HTTPException(422,'Use an ISO date or leave the unknown shot date empty.')
-    shot_day=datetime.fromisoformat(data.date.replace('Z','+00:00')).date() if data.date else None
-    freeze=parse_roast_date(coffee.get('freeze_date',''))
-    thaw=parse_roast_date(coffee.get('thaw_date',''))
-    # Placement rules apply when a shot lands on a coffee, not when its details are filled in later.
-    places=data.status=='logged' and (is_new or existing.get('status')=='planned' or existing.get('coffee_id')!=data.coffee_id or (existing.get('date') or '')!=data.date)
-    if places and freeze and not thaw and (shot_day is None or shot_day>=freeze):
-        if not coffee.get('bag_g') or coffee['bag_g']<=(coffee.get('frozen_g') or 0): raise HTTPException(422,'Thaw a batch before logging a shot from frozen coffee.')
-    if places and coffee.get('bag_g') and not coffee.get('source_coffee_id'):
-        first_thaw=await db.coffees.find_one({'account_id':account_id,'source_coffee_id':coffee['id'],'deleted_at':{'$exists':False}},sort=[('thaw_date',1)])
-        if first_thaw and (shot_day is None or shot_day>=parse_roast_date(first_thaw.get('thaw_date'))):
-            raise HTTPException(422,'Log new shots on the active thawed portion.')
-    if places and thaw and shot_day and shot_day<thaw:
-        raise HTTPException(422,'A thawed batch cannot have shots before its thaw date.')
+    # Bag and batch details (freeze, thaw, sizes) never gate logging or editing a shot.
     return await save(db.shots,key,data,account_id)
 
 def next_shot_candidates(anchor,constraints=None,references=None,direction=None):
