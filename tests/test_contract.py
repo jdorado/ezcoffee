@@ -177,6 +177,21 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(self.http.post('/shots',json={'coffee_id':bag['id'],'date':'2026-10-04'}).status_code,422)
   self.assertEqual(self.http.post('/coffees',json={'name':'Too much','roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':'2026-10-04','portion_g':250,'source_coffee_id':bag['id']}).status_code,422)
   self.assertEqual(self.http.post('/coffees',json={'name':'Too much frozen','roast_date':'2026-09-01','freeze_date':'2026-09-05','bag_g':1000,'frozen_g':1200,'portion_g':250}).status_code,422)
+ def test_shots_on_a_bag_stay_editable_after_a_batch_is_thawed(self):
+  bag=self.http.post('/coffees',json={'name':'Active then thawed','roast_date':'2026-09-01','freeze_date':'2026-09-05','bag_g':500,'frozen_g':250}).json()
+  dated=self.http.post('/shots',json={'coffee_id':bag['id'],'date':'2026-10-01','dose':18}).json()
+  undated=self.http.post('/shots',json={'coffee_id':bag['id'],'dose':18}).json()
+  batch=self.http.post('/coffees',json={'name':bag['name'],'roast_date':bag['roast_date'],'freeze_date':bag['freeze_date'],'thaw_date':'2026-10-01','portion_g':250,'source_coffee_id':bag['id']})
+  self.assertEqual(batch.status_code,200,batch.text)
+  # Details can be filled in on the bag's own shots, including ones logged the day the batch was thawed.
+  for shot in (dated,undated):
+   filled=self.http.put('/shots/'+shot['id'],json={'coffee_id':bag['id'],'revision':shot['revision'],'rating':4,'taste':'Sweet'})
+   self.assertEqual(filled.status_code,200,filled.text)
+  # New shots still belong on the thawed batch, and an edit cannot move a shot past that point.
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':bag['id'],'date':'2026-10-02','dose':18}).status_code,422)
+  moved=self.http.put('/shots/'+dated['id'],json={'coffee_id':bag['id'],'revision':2,'date':'2026-10-02'})
+  self.assertEqual(moved.status_code,422)
+  self.assertEqual(self.http.post('/shots',json={'coffee_id':batch.json()['id'],'date':'2026-10-02','dose':18}).status_code,200)
  def test_one_tap_batches_from_pooled_frozen_bag(self):
   response=self.http.post('/coffees',json={'name':'Fresh purchase','roast_date':'2026-09-01','freeze_date':'2026-09-05','bag_g':1000,'frozen_g':1000})
   self.assertEqual(response.status_code,200,response.text)

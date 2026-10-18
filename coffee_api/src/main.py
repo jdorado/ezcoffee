@@ -547,13 +547,15 @@ async def write_shot(key,data,account_id):
     shot_day=datetime.fromisoformat(data.date.replace('Z','+00:00')).date() if data.date else None
     freeze=parse_roast_date(coffee.get('freeze_date',''))
     thaw=parse_roast_date(coffee.get('thaw_date',''))
-    if data.status=='logged' and freeze and not thaw and (shot_day is None or shot_day>=freeze):
+    # Placement rules apply when a shot lands on a coffee, not when its details are filled in later.
+    places=data.status=='logged' and (is_new or existing.get('status')=='planned' or existing.get('coffee_id')!=data.coffee_id or (existing.get('date') or '')!=data.date)
+    if places and freeze and not thaw and (shot_day is None or shot_day>=freeze):
         if not coffee.get('bag_g') or coffee['bag_g']<=(coffee.get('frozen_g') or 0): raise HTTPException(422,'Thaw a batch before logging a shot from frozen coffee.')
-    if data.status=='logged' and coffee.get('bag_g') and not coffee.get('source_coffee_id'):
+    if places and coffee.get('bag_g') and not coffee.get('source_coffee_id'):
         first_thaw=await db.coffees.find_one({'account_id':account_id,'source_coffee_id':coffee['id'],'deleted_at':{'$exists':False}},sort=[('thaw_date',1)])
         if first_thaw and (shot_day is None or shot_day>=parse_roast_date(first_thaw.get('thaw_date'))):
             raise HTTPException(422,'Log new shots on the active thawed portion.')
-    if data.status=='logged' and thaw and shot_day and shot_day<thaw:
+    if places and thaw and shot_day and shot_day<thaw:
         raise HTTPException(422,'A thawed batch cannot have shots before its thaw date.')
     return await save(db.shots,key,data,account_id)
 
