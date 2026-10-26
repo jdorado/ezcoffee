@@ -83,8 +83,8 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  const [nextPaper,setNextPaper]=useState(profile.defaults.paper==='yes'?'yes':'no')
  const [selected,setSelected]=useState(()=>snapshot?initialCoffeeSelection(snapshot.coffees,lastCoffee()):lastCoffee()),[tab,setTab]=useState('shots'),[chatOpen,setChatOpen]=useState(false),[draft,setDraft]=useState<Shot|null>(null)
  const beanMessages=useMemo(()=>coffeeMessages(messages,coffees,selected),[messages,coffees,selected])
- // Parse assistant Markdown once per message list so typing never re-parses history.
- const renderedMessages=useMemo(()=>beanMessages.map(m=>({...m,html:m.role==='assistant'?DOMPurify.sanitize(marked.parse(balanceBold(emphasizeCoffeeValues(stripProseBold(m.text))),{async:false}) as string):null as string|null})),[beanMessages])
+ // Closed chat never delays opening the logbook with Markdown work.
+ const renderedMessages=useMemo(()=>chatOpen?beanMessages.map(m=>({...m,html:m.role==='assistant'?DOMPurify.sanitize(marked.parse(balanceBold(emphasizeCoffeeValues(stripProseBold(m.text))),{async:false}) as string):null as string|null})):[],[beanMessages,chatOpen])
  // Fields still holding a suggested next-shot value render muted until edited.
  const [suggested,setSuggested]=useState<Set<string>>(()=>new Set())
  const bagRows=useRef<BagRowsHandle>(null)
@@ -208,6 +208,7 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  function cardMetrics(s:Shot):ShotMetric[]{const fields:TrackedField[]=s.status==='planned'?(isFilter?plannedEditorFields(brewProfile.tracked_fields):['dose','grind','target_yield_g','temp']):brewProfile.tracked_fields;return fields.flatMap(key=>{const item=metric(s,key);if(!item)return [];const [value,unit,label]=item;return [{field:key==='ratio'?null:key as EditableShotField,value,unit,label,note:key==='yield_g'&&tracked('stop_yield_g')&&s.stop_yield_g!=null?`stop ${s.stop_yield_g} g`:undefined}]}).slice(0,4)}
  function renderShotMetrics(s:Shot,metrics:ShotMetric[],className=''){return <ShotMetrics shot={s} metrics={metrics} edit={inlineEdit} onEdit={changeInlineEdit} onSave={saveInlineShot} onReload={reloadInlineShot} saving={inlineSaving} error={inlineError} disabled={!!(draft||coffeeDraft)||s.status==='planned'&&!!(job||sending||retrying)} className={className}/>}
  function trackingField(key:TrackedField){switch(key){case'water_temp_c':return field(key,'Water temperature · °C','number');case'water_g':return field(key,'Water quantity · g','number');case'ice_g':return field(key,'Ice quantity · g','number');case'dose':return field(key,'Coffee · g','number');case'grind':return field(key,'Grind size');case'seconds':return field(key,'Brew time · s','number');case'bloom_seconds':return field(key,'Bloom time · s','number');case'yield_g':return field(key,'Out · g','number');case'stop_yield_g':return field(key,'Stop at · g','number');case'target_yield_g':return field(key,'Stop at · g','number');case'first_drip':return field(key,'First drip · s','number');case'pressure':return field(key,'Pressure · bar');case'basket':return field(key,'Basket');case'puck_screen':return puckScreenField();case'paper':return tapField(key,'Paper filter',[['yes','Paper'],['no','No paper']]);case'temp':return tapField(key,brewProfile.equipment_preset==='lelit_mara_x'?'Mara X PID':'Temperature setting',[['0','0'],['I','I'],['II','II']]);case'ratio':{const value=draft?ratio(draft):'Ratio —';return <label key={key}>Coffee-to-water ratio<input readOnly value={value==='Ratio —'?'Add coffee and water quantities':value} /></label>}default:return null}}
+ if(loading)return <LoadingLogbook/>
  return <div className="app-shell">
   <header className="app-top-bar">
    <a className="brand" href="#" aria-label="ezcoffee home" onClick={e=>{e.preventDefault();setTab('shots')}}><img className="brand-logo" src="/ezcoffee-logo-header.png" alt="ezcoffee"/></a>
@@ -215,7 +216,7 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
   </header>
   {copyNotice&&<div role="status" className="context-notice">{copyNotice}</div>}
   {error&&<div role="alert" className="error">{error}<button onClick={()=>setError('')} aria-label="Dismiss error">×</button></div>}
-  {loading?<main className="loading-view"><LoadingLogbook/></main>:tab==='profile'?<ProfileView value={brewProfile} onChange={setBrewProfile} onSave={saveProfile} onLogout={onLogout} saving={saving}/>:tab==='shots'?<main className="shots-view">
+  {tab==='profile'?<ProfileView value={brewProfile} onChange={setBrewProfile} onSave={saveProfile} onLogout={onLogout} saving={saving}/>:tab==='shots'?<main className="shots-view">
    <div className="heading">
     <div><div className="eyebrow">{isFilter?'FILTER COFFEE LOGBOOK':'ESPRESSO LOGBOOK'}</div><h1>{isFilter?'Brews':'Shots'}</h1></div>
      <div className="shot-heading-actions"><button className="primary" disabled={!coffee||coffee.archived} onClick={newShot}><Icon name="plus"/>Log {brewWord}</button></div>

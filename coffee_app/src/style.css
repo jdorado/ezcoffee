@@ -168,15 +168,7 @@ nav button:disabled { opacity: .42; background: transparent; }
 .next-plan-controls > input:focus { outline: 0; border-color: #f8f7f3; }
 .shot-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .next-plan-card + .shot-list { margin-top: 12px; }
-.shot-card { position: relative; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--radius); overflow: hidden; animation: row-rise .5s var(--ease) both; transition: background .2s var(--ease), border-color .2s var(--ease), box-shadow .2s var(--ease); }
-.shot-card:nth-child(2) { animation-delay: .05s; }
-.shot-card:nth-child(3) { animation-delay: .1s; }
-.shot-card:nth-child(4) { animation-delay: .15s; }
-.shot-card:nth-child(5) { animation-delay: .2s; }
-.shot-card:nth-child(6) { animation-delay: .25s; }
-.shot-card:nth-child(7) { animation-delay: .3s; }
-.shot-card:nth-child(8) { animation-delay: .35s; }
-@keyframes row-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.shot-card { position: relative; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--radius); overflow: hidden; transition: background .2s var(--ease), border-color .2s var(--ease), box-shadow .2s var(--ease); }
 .shot-card * { transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), box-shadow .2s var(--ease); }
 .shot-card:hover, .shot-card:focus-within { background: var(--surface); border-color: #abae9f; box-shadow: 0 3px 14px rgba(36, 37, 32, .07); }
 
@@ -345,11 +337,6 @@ details { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .new-bag-button { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin-top: 14px; padding: 13px; border: 1px solid var(--line-2); border-radius: var(--radius); color: var(--ink-2); font-family: var(--font-mono); font-size: 10px; letter-spacing: .07em; text-transform: uppercase; background: var(--surface); }
 .new-bag-button:hover { background: var(--surface-2); border-color: var(--ink); color: var(--ink); }
 .new-bag-button svg { width: 12px; height: 12px; }
-.initial-loading-view, .loading-view { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; margin: 0; background: var(--paper); }
-.logbook-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; padding: 32px; animation: loading-in .25s var(--ease) both; }
-.loading-logo { display: block; width: 220px; height: 48px; object-fit: contain; margin-bottom: 22px; }
-.logbook-loading p { font-family: var(--font-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); margin: 0 0 28px; }
-@keyframes loading-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .chat-bubble { position: absolute; z-index: 22; right: 24px; bottom: calc(22px + var(--app-safe-bottom)); display: flex; align-items: center; gap: 8px; min-width: 58px; height: 52px; padding: 0 18px; border-radius: 999px; background: var(--accent); color: #f8f7f3; box-shadow: 0 14px 34px rgba(19, 18, 17, .3); font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; }
 .chat-bubble:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 18px 40px rgba(19, 18, 17, .34); }
 .chat-bubble.open { visibility: hidden; }
@@ -646,22 +633,6 @@ nav button.active { background: var(--yellow); color: var(--ink); }
 [data-keyboard-open] .build-version { display: none; }
 [data-keyboard-open] .chat-sheet { height: 100% !important; min-height: 0; padding-bottom: 8px; border-radius: 0; }
 :root[data-keyboard-open] { --app-safe-bottom: 0px; }
-/* A quiet brewing animation, with a static reduced-motion alternative below. */
-.loading-emblem { position: relative; display: grid; place-items: center; width: 112px; height: 112px; margin-bottom: 28px; }
-.loading-orbit { position: absolute; inset: 0; border: 2px solid var(--line); border-top: 4px solid var(--yellow); border-right-color: transparent; border-radius: 50%; animation: coffee-orbit 3s linear infinite; }
-.loading-cup { position: relative; width: 38px; height: 32px; border: 2px solid var(--ink); border-radius: 3px 3px 14px 14px; overflow: visible; margin-top: 12px; }
-.loading-cup::after { content: ''; position: absolute; top: 4px; right: -12px; width: 10px; height: 15px; border: 2px solid var(--ink); border-left: 0; border-radius: 0 8px 8px 0; }
-.loading-cup i { position: absolute; inset: 5px 3px 3px; background: var(--yellow); border-radius: 1px 1px 9px 9px; transform-origin: bottom; animation: coffee-fill 2.4s ease-in-out infinite; }
-.loading-drop { position: absolute; top: 25px; width: 5px; height: 8px; background: var(--ink); border-radius: 50%; animation: coffee-drop 2.4s ease-in infinite; }
-.logbook-loading p { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--ink-2); }
-.loading-dots { display: inline-flex; gap: 3px; }
-.loading-dots i { width: 3px; height: 3px; background: var(--ink); border-radius: 50%; animation: breathe 1s ease-in-out infinite alternate; }
-.loading-dots i:nth-child(2) { animation-delay: .2s; }
-.loading-dots i:nth-child(3) { animation-delay: .4s; }
-.loading-caption { font-size: 12px; color: var(--muted); }
-@keyframes coffee-orbit { to { transform: rotate(360deg); } }
-@keyframes coffee-fill { 0%, 100% { transform: scaleY(.3); } 65%, 85% { transform: scaleY(1); } }
-@keyframes coffee-drop { 0%, 65%, 100% { opacity: 0; transform: translateY(0); } 20% { opacity: 1; } 55% { opacity: 0; transform: translateY(30px); } }
 .logbook-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 22px 0 14px; }
 .logbook-filters label { margin: 0; min-width: 0; }
 .logbook-filters select { margin-top: 6px; min-height: 44px; font-size: 13px; padding: 9px 30px 9px 10px; }

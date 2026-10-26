@@ -13,6 +13,9 @@ by every load, is tied to one account and build, and is cleared on sign-out.
 Never write from it. Recipe reuse copies inputs only, never measured
 outputs or tasting results. Planned tests are not logged shots.
 
+The initial HTML shows an account-free logbook layout before JavaScript loads.
+Keep session confirmation ahead of all personal data, including the startup cache.
+
 Keep real coffee data and all credentials in ignored files. Tests must use an
 isolated database. Bind local defaults to loopback. Do not weaken authentication
 in the personal profile.

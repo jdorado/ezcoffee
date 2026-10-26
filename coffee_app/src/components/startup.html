@@ -1,0 +1,36 @@
+<style>
+  .startup-logbook, .startup-logbook * { box-sizing: border-box; }
+  .startup-logbook { position: fixed; inset: 0; width: 100%; max-width: 1040px; margin: auto; overflow: hidden; background: #f8f8f5; color: #20211f; font-family: system-ui, -apple-system, sans-serif; border-inline: 1px solid #dedfd7; }
+  .startup-logbook header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: calc(16px + env(safe-area-inset-top)) 40px 16px; border-bottom: 1px solid #dedfd7; }
+  .startup-logbook img { display: block; width: 168px; height: auto; }
+  .startup-logbook small { font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: .15em; text-transform: uppercase; color: #696b62; }
+  .startup-logbook main { padding: 34px 40px; }
+  .startup-logbook h1 { margin: 7px 0 28px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 46px; font-weight: 400; line-height: .96; letter-spacing: -.04em; }
+  .startup-coffee, .startup-row { padding: 22px; margin-bottom: 12px; border: 1px solid #dedfd7; border-radius: 3px; background: #fff; }
+  .startup-coffee { padding: 24px; margin-bottom: 28px; }
+  .startup-line { display: block; height: 9px; width: 28%; margin-bottom: 16px; border-radius: 2px; background: #efefeb; }
+  .startup-title { height: 24px; width: 62%; margin-bottom: 24px; }
+  .startup-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+  .startup-metrics .startup-line { width: 75%; height: 25px; margin: 0; }
+  @media (max-width: 700px) {
+    .startup-logbook { border: 0; }
+    .startup-logbook header { padding: calc(14px + env(safe-area-inset-top)) 16px 14px; }
+    .startup-logbook img { width: 145px; }
+    .startup-logbook header small { display: none; }
+    .startup-logbook main { padding: 24px 18px; }
+    .startup-coffee, .startup-row { padding: 20px; }
+    .startup-metrics { gap: 12px; }
+  }
+</style>
+<div class="startup-logbook" role="status" aria-label="Opening your logbook" aria-busy="true">
+  <header><img src="/ezcoffee-logo-header.png" alt="ezcoffee" width="168" height="36"><small>Your coffee logbook</small></header>
+  <main>
+    <small>Your coffee logbook</small><h1>Logbook</h1>
+    <div aria-hidden="true">
+      <div class="startup-coffee"><span class="startup-line"></span><span class="startup-line startup-title"></span><div class="startup-metrics"><i class="startup-line"></i><i class="startup-line"></i><i class="startup-line"></i><i class="startup-line"></i></div></div>
+      <div class="startup-row"><span class="startup-line"></span><div class="startup-metrics"><i class="startup-line"></i><i class="startup-line"></i><i class="startup-line"></i><i class="startup-line"></i></div></div>
+      <div class="startup-row"><span class="startup-line"></span><div class="startup-metrics"><i class="startup-line"></i><i class="startup-line"></i><i class="startup-line"></i><i class="startup-line"></i></div></div>
+      <div class="startup-row"><span class="startup-line"></span><div class="startup-metrics"><i class="startup-line"></i><i class="startup-line"></i><i class="startup-line"></i><i class="startup-line"></i></div></div>
+    </div>
+  </main>
+</div>

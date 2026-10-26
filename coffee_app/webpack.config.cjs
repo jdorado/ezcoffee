@@ -109,6 +109,7 @@ module.exports = (_env, argv) => {
     } : {},
     module: {
       rules: [
+        { test: /\.html$/, include: path.resolve(__dirname, 'src'), type: 'asset/source' },
         {
           test: /\.tsx?$/,
           use: {
@@ -138,6 +139,7 @@ module.exports = (_env, argv) => {
         // Open the sign-in and API connections while the bundle downloads.
         templateParameters: {
           preconnect: [env.APP_MODE === 'selfhost' ? '' : 'https://auth.privy.io', originOf(env.API_BASE_URL)].filter(Boolean),
+          startup: fs.readFileSync(path.resolve(__dirname, 'src/components/startup.html'), 'utf8'),
         },
       }),
       new CopyWebpackPlugin({

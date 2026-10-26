@@ -1,1 +1,4 @@
-export default function LoadingLogbook(){return <div className="logbook-loading" role="status" aria-label="Opening your logbook"><div className="loading-emblem" aria-hidden="true"><span className="loading-orbit"/><span className="loading-cup"><i/></span><span className="loading-drop"/></div><img className="loading-logo" src="/ezcoffee-logo-header.png" alt="ezcoffee"/><p>Getting your bar ready<span className="loading-dots" aria-hidden="true"><i/><i/><i/></span></p><span className="loading-caption">A moment before a good coffee.</span></div>}
+import startup from './startup.html'
+
+// The same static, account-free markup is in the initial HTML, before JavaScript or auth can delay it.
+export default function LoadingLogbook(){return <div dangerouslySetInnerHTML={{__html:startup}}/>}
