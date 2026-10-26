@@ -8,7 +8,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ezcoffee">
   <meta name="description" content="A coffee journal for dialing in espresso and pour-over.">
-  <link rel="manifest" href="/manifest.webmanifest">
+  <% for (const href of preconnect) { %><link rel="preconnect" href="<%= href %>" crossorigin>
+  <% } %><link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" type="image/x-icon" href="/icons/espresso.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/espresso-32.png">
   <link rel="apple-touch-icon" href="/icons/espresso-apple.png">

@@ -29,6 +29,12 @@ const envKeys = [
   'VERCEL_GIT_COMMIT_REF',
 ]
 
+const perBuildKeys = ['APP_VERSION', 'BUILD_TIME', 'VERCEL_GIT_COMMIT_SHA', 'VERCEL_GIT_COMMIT_TIMESTAMP', 'VERCEL_GIT_COMMIT_REF']
+
+const originOf = (value) => {
+  try { return new URL(value).origin } catch { return '' }
+}
+
 const parseEnvFile = (filename) => {
   const envPath = path.resolve(__dirname, filename)
   if (!fs.existsSync(envPath)) return {}
@@ -77,6 +83,15 @@ module.exports = (_env, argv) => {
       },
     },
     target: ['web', 'es2020'],
+    // Dependencies and the webpack runtime get their own long-lived files, so a deploy only re-downloads the small app chunk.
+    optimization: mode === 'production' ? {
+      runtimeChunk: 'single',
+      splitChunks: {
+        cacheGroups: {
+          vendor: { test: /[\\/]node_modules[\\/]/, name: 'vendor', chunks: 'initial', enforce: true },
+        },
+      },
+    } : {},
     module: {
       rules: [
         {
@@ -105,6 +120,10 @@ module.exports = (_env, argv) => {
     plugins: [
       new HtmlWebpackPlugin({
         template: path.resolve(__dirname, 'public', 'index.html'),
+        // Open the sign-in and API connections while the bundle downloads.
+        templateParameters: {
+          preconnect: [env.APP_MODE === 'selfhost' ? '' : 'https://auth.privy.io', originOf(env.API_BASE_URL)].filter(Boolean),
+        },
       }),
       new CopyWebpackPlugin({
         patterns: [
@@ -126,7 +145,9 @@ module.exports = (_env, argv) => {
         ],
       }),
       new webpack.DefinePlugin({
-        'process.env': JSON.stringify(env),
+        // Libraries read process.env as a whole object. Keeping per-build values out of it keeps the vendor chunk's hash stable across deploys.
+        'process.env': JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key]) => !perBuildKeys.includes(key)))),
+        ...Object.fromEntries(perBuildKeys.map(key => [`process.env.${key}`, JSON.stringify(env[key])])),
       }),
     ],
     devServer: {
