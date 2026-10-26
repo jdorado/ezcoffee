@@ -660,6 +660,24 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(failed['finish_reason'],'stop')
   self.assertIn('stage=parse',failed['error_detail'])
   database.client.close()
+ def test_failed_chat_reply_names_the_stored_cause_without_free_text(self):
+  from pymongo import MongoClient
+  from src.main import state_for
+  database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
+  coffee_id=self.http.post('/coffees',json={'name':'Failure cause test'}).json()['id']
+  rows=[('cause-provider',{'error_code':'provider_error','provider_status':404,'error_detail':'BridgeError code=provider_error status=404 id=secret-record'}),
+        ('cause-restart',{'error_code':'api_restart'}),
+        ('cause-output',{'error_code':'output_truncated','response_provider':'Parasail','finish_reason':'length'}),
+        ('cause-unknown',{})]
+  for job_id,fields in rows:
+   database.jobs.insert_one({'account_id':'test-owner','id':job_id,'message':'Why?','coffee_id':coffee_id,'status':'failed','created_at':'2026-09-15T00:00:00+00:00','receipts':[],'error':'Coffee chat is temporarily unavailable. Please try again.',**fields})
+   database.messages.insert_one({'account_id':'test-owner','id':job_id+'-user','coffee_id':coffee_id,'role':'user','text':'Why?'})
+  messages={row['id']:row for row in self.http.portal.call(state_for,'test-owner')['messages']}
+  self.assertEqual(messages['cause-provider-assistant-failed']['reason'],'provider_error · HTTP 404')
+  self.assertEqual(messages['cause-restart-assistant-failed']['reason'],'api_restart')
+  self.assertEqual(messages['cause-output-assistant-failed']['reason'],'output_truncated · Parasail · length')
+  self.assertNotIn('reason',messages['cause-unknown-assistant-failed'])
+  self.assertNotIn('secret-record',str(messages))
  def test_failed_chat_retry_reuses_the_original_message_and_is_bounded(self):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch

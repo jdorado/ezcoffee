@@ -381,9 +381,13 @@ async def state_for(account_id):
                         text = 'I suggested a new recipe but didn\'t save it to your planned shot, so nothing changed. Please send it again to retry.'
                     else:
                         text = 'I couldn\'t reply to that message because the coffee chat service was temporarily unavailable. Please send it again to retry.'
+                    # The stored code and provider status are safe to show: they hold no prompts, payloads, ids or credentials.
+                    provider_status=failed.get('provider_status')
+                    reason=' · '.join(part for part in (failed.get('error_code'),f'HTTP {provider_status}' if isinstance(provider_status,int) else '',failed.get('response_provider'),failed.get('finish_reason')) if part)
                     visible_messages.append({
                         'id':job_id+'-assistant-failed','coffee_id':message.get('coffee_id') or failed.get('coffee_id'),
-                        'role':'assistant','text':text,'failed':True,'retryable':False
+                        'role':'assistant','text':text,'failed':True,'retryable':False,
+                        **({'reason':reason} if reason else {})
                     })
             messages=visible_messages
     return {'beans':beans, 'coffees':coffees, 'shots':shots, 'profile':profile, 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}

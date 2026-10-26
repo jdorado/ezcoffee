@@ -382,6 +382,9 @@ details { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .message.user small { color: rgba(255, 255, 255, .5); }
 .message.assistant { background: var(--surface); border: 1px solid var(--line-2); padding: 18px 20px; box-shadow: var(--shadow-1); }
 .message.failed { border-color: var(--line-2); background: var(--surface-2); }
+.message.user.failed { color: var(--ink); }
+.message.user.failed small { color: var(--muted); }
+.message-reason { margin: 10px 0 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em; color: var(--muted); }
 .message-retry { display: inline-grid; place-items: center; width: 31px; height: 31px; margin-top: 12px; padding: 6px; border: 1px solid var(--line-2); border-radius: 50%; color: var(--muted); background: transparent; }
 .message-retry:hover { border-color: var(--ink); color: var(--ink); }
 .message-retry:disabled { opacity: .5; cursor: wait; }
