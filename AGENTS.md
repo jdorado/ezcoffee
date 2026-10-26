@@ -19,7 +19,9 @@ dashboards or new product areas without an explicit scope change.
 
 Work directly on `main` for this repo. Keep testing minimal and proportional to
 the change: run a relevant focused check when useful and build the frontend for
-frontend changes. API tests must use an isolated Mongo instance. When the
-maintainer says "push," push `main` to `origin`; this triggers the existing
-deployment workflow. Do not push before that request, or separately publish,
-change repository visibility, or deploy without explicit authorization.
+frontend changes. API tests must use an isolated Mongo instance. Push
+automatically after each committed change, without waiting to be asked: push
+`main` to `origin` (this triggers the existing deployment workflow), or the
+session's designated branch when one is given. Do not separately publish,
+change repository visibility, or deploy by other means without explicit
+authorization.
