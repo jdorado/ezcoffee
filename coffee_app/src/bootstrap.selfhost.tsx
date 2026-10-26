@@ -4,7 +4,7 @@ import {captureInstallPrompt} from './installApp'
 import './style.css'
 
 captureInstallPrompt()
-createRoot(document.getElementById('app')!).render(<App/>)
+createRoot(document.getElementById('app')!).render(<App snapshotOwner="selfhost"/>)
 
 if('serviceWorker' in navigator){
  window.addEventListener('load',()=>{

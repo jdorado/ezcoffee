@@ -21,6 +21,7 @@ import {fallbackProfile} from './profileSettings'
 import ProfileView from './components/ProfileView'
 import {coffeeAgeDays,coffeeScore} from './coffeeScore'
 import {coffeePickerRows,initialCoffeeSelection} from './coffeePicker'
+import {readSnapshot,writeSnapshot} from './stateSnapshot'
 import {coffeeHistoryIds,coffeeMessages} from './coffeeHistory'
 const balances={sour:'Sour',slightly_sour:'Slightly sour',balanced:'Balanced',slightly_bitter:'Slightly bitter',bitter:'Bitter / burnt'} as const
 const bodies={light:'Light',medium:'Medium',full:'Full'} as const
@@ -65,27 +66,29 @@ const brewValuePattern='(?:1\\s*:\\s*\\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?(?:\\s*[�
 function stripProseBold(text:string){return text.split(/(`[^`]*`)/g).map(part=>{if(part.startsWith('`'))return part;const kept:string[]=[];let tmp=part.replace(new RegExp('\\*\\*('+brewValuePattern+')\\*\\*','gi'),match=>{kept.push(match);return 'EZBOLDKEEP'+(kept.length-1)+'X'});tmp=tmp.replace(/\*\*([^*]+?)\*\*/g,'$1');return tmp.replace(/EZBOLDKEEP(\d+)X/g,(_,index)=>kept[Number(index)])}).join('')}
 function balanceBold(text:string){const cleaned=stripProseBold(text);const parts=cleaned.split(/(`[^`]*`)/g);let marks=0;for(const part of parts){if(part.startsWith('`'))continue;const found=part.match(/\*\*/g);if(found)marks+=found.length}if(marks%2===0)return parts.join('');const firstText=parts.find(part=>!part.startsWith('`')&&part.trim()!=='');if(firstText?.trimStart().startsWith('**')){for(let index=0;index<parts.length;index++){if(parts[index].startsWith('`'))continue;const stray=parts[index].indexOf('**');if(stray!==-1){parts[index]=parts[index].slice(0,stray)+parts[index].slice(stray+2);break}}}else{for(let index=parts.length-1;index>=0;index--){if(parts[index].startsWith('`'))continue;const stray=parts[index].lastIndexOf('**');if(stray!==-1){parts[index]=parts[index].slice(0,stray)+parts[index].slice(stray+2);break}}}return parts.join('')}
 
-export default function App({onLogout}:{onLogout?:()=>void}){
+export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapshotOwner?:string}){
+ // The last synced state paints the first screen at once; refresh() then replaces it with the server's.
+ const [snapshot]=useState(()=>snapshotOwner?readSnapshot(snapshotOwner,buildTime):null)
  const grindEdited=useRef(false)
- const selectionLoaded=useRef(false)
+ const selectionLoaded=useRef(!!snapshot)
  const inlineSavingRef=useRef(false)
  const [inlineEdit,setInlineEdit]=useState<InlineShotEdit|null>(null),[inlineSaving,setInlineSaving]=useState(false),[inlineError,setInlineError]=useState('')
  const [paperFilter,setPaperFilter]=useState('all')
  const [resultFilter,setResultFilter]=useState('all')
- const [beans,setBeans]=useState<Bean[]>([])
- const [coffees,setCoffees]=useState<Coffee[]>([]),[shots,setShots]=useState<Shot[]>([]),[messages,setMessages]=useState<Message[]>([])
- const [brewProfile,setBrewProfile]=useState<BrewProfile>(fallbackProfile)
- const [chatEnabled,setChatEnabled]=useState(profile.chatEnabled)
+ const [beans,setBeans]=useState<Bean[]>(snapshot?.beans||[])
+ const [coffees,setCoffees]=useState<Coffee[]>(snapshot?.coffees||[]),[shots,setShots]=useState<Shot[]>(snapshot?.shots||[]),[messages,setMessages]=useState<Message[]>(snapshot?.messages||[])
+ const [brewProfile,setBrewProfile]=useState<BrewProfile>(snapshot?.profile||fallbackProfile)
+ const [chatEnabled,setChatEnabled]=useState(snapshot?.capabilities?.chat??profile.chatEnabled)
  const [nextGuidance,setNextGuidance]=useState('')
  const [nextPaper,setNextPaper]=useState(profile.defaults.paper==='yes'?'yes':'no')
- const [selected,setSelected]=useState(lastCoffee),[tab,setTab]=useState('shots'),[chatOpen,setChatOpen]=useState(false),[draft,setDraft]=useState<Shot|null>(null)
+ const [selected,setSelected]=useState(()=>snapshot?initialCoffeeSelection(snapshot.coffees,lastCoffee()):lastCoffee()),[tab,setTab]=useState('shots'),[chatOpen,setChatOpen]=useState(false),[draft,setDraft]=useState<Shot|null>(null)
  const beanMessages=useMemo(()=>coffeeMessages(messages,coffees,selected),[messages,coffees,selected])
  // Parse assistant Markdown once per message list so typing never re-parses history.
  const renderedMessages=useMemo(()=>beanMessages.map(m=>({...m,html:m.role==='assistant'?DOMPurify.sanitize(marked.parse(balanceBold(emphasizeCoffeeValues(stripProseBold(m.text))),{async:false}) as string):null as string|null})),[beanMessages])
  // Fields still holding a suggested next-shot value render muted until edited.
  const [suggested,setSuggested]=useState<Set<string>>(()=>new Set())
  const bagRows=useRef<BagRowsHandle>(null)
- const [coffeeDraft,setCoffeeDraft]=useState<Partial<Coffee>|null>(null),[newBagSource,setNewBagSource]=useState<string|null>(null),[input,setInput]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false)
+ const [coffeeDraft,setCoffeeDraft]=useState<Partial<Coffee>|null>(null),[newBagSource,setNewBagSource]=useState<string|null>(null),[input,setInput]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(!snapshot),[saving,setSaving]=useState(false)
  const [job,setJob]=useState<string|null>(null),[sending,setSending]=useState(false),[retrying,setRetrying]=useState<string|null>(null)
  const [jobCoffeeId,setJobCoffeeId]=useState<string|null>(null)
  const [jobProgress,setJobProgress]=useState('Reviewing shots'),[planNotice,setPlanNotice]=useState<{coffeeId:string;text:string}|null>(null)
@@ -95,13 +98,13 @@ export default function App({onLogout}:{onLogout?:()=>void}){
  const [chatMaximized,setChatMaximized]=useState(false),[chatHeight,setChatHeight]=useState<number|null>(null)
  const messagesView=useRef<HTMLDivElement>(null),dialog=useRef<HTMLDialogElement>(null),coffeePicker=useRef<HTMLDetailsElement>(null)
  const chatSheetRef=useRef<HTMLElement>(null),chatDrag=useRef<{startY:number;startHeight:number;shellHeight:number;pointerId:number}|null>(null)
- async function refresh(){const state=await api('/state');const active=state.coffees.filter((c:Coffee)=>!c.archived);setBeans(state.beans||[]);setCoffees(state.coffees);setShots(rows=>{const known=new Map(rows.map(row=>[row.id,row]));return state.shots.map((row:Shot)=>{const current=known.get(row.id);return current&&current.revision>row.revision?current:row})});setMessages(state.messages);setBrewProfile(state.profile||fallbackProfile);setChatEnabled(state.capabilities?.chat??profile.chatEnabled);const restoreSelection=!selectionLoaded.current;selectionLoaded.current=true;setSelected(prev=>restoreSelection?initialCoffeeSelection(state.coffees,prev):active.some((c:Coffee)=>c.id===prev)?prev:initialCoffeeSelection(state.coffees,''));if(state.active_job){setJob(state.active_job.id);setJobCoffeeId(state.active_job.coffee_id??null);setJobProgress(state.active_job.phase==='saving'?'Saving plan':'Reviewing shots')}setLoading(false);return state}
+ async function refresh(){const state=await api('/state');if(snapshotOwner)setTimeout(()=>writeSnapshot(snapshotOwner,buildTime,state),0);const active=state.coffees.filter((c:Coffee)=>!c.archived);setBeans(state.beans||[]);setCoffees(state.coffees);setShots(rows=>{const known=new Map(rows.map(row=>[row.id,row]));return state.shots.map((row:Shot)=>{const current=known.get(row.id);return current&&current.revision>row.revision?current:row})});setMessages(state.messages);setBrewProfile(state.profile||fallbackProfile);setChatEnabled(state.capabilities?.chat??profile.chatEnabled);const restoreSelection=!selectionLoaded.current;selectionLoaded.current=true;setSelected(prev=>restoreSelection?initialCoffeeSelection(state.coffees,prev):active.some((c:Coffee)=>c.id===prev)?prev:initialCoffeeSelection(state.coffees,''));if(state.active_job){setJob(state.active_job.id);setJobCoffeeId(state.active_job.coffee_id??null);setJobProgress(state.active_job.phase==='saving'?'Saving plan':'Reviewing shots')}setLoading(false);return state}
  useEffect(()=>{if(!loading)try{localStorage.setItem('coffee.selected',selected)}catch{}},[selected,loading])
  async function copyContext(coffeeId:string){if(copyingContextRef.current)return;copyingContextRef.current=true;setCopyingContext(true);setCopyNotice('');setError('');try{await copyCoffeeContext(coffeeId);setCopyNotice('Context copied. Paste it into another LLM.')}catch(e){setError('Could not copy context. '+(e as Error).message)}finally{copyingContextRef.current=false;setCopyingContext(false)}}
  useEffect(()=>{setCopyNotice('')},[selected])
  async function removeRecord(){const row=draft||coffeeDraft;if(!row?.id)return;const kind=draft?'shot':'coffee';if(!window.confirm(kind==='coffee'?`Delete ${coffeeDisplayName(coffeeDraft as Coffee)} and remove all its shots from your logbook?`:'Delete this shot?'))return;setSaving(true);setError('');try{await api(`/${kind==='coffee'?'coffees':'shots'}/${row.id}?revision=${row.revision}`,'DELETE');setDraft(null);setCoffeeDraft(null);await refresh()}catch(e){setError((e as Error).message)}finally{setSaving(false)}}
  useEffect(()=>{const dismiss=(event:MouseEvent)=>{document.querySelectorAll<HTMLDetailsElement>('.compact-menu[open]').forEach(menu=>{if(!menu.contains(event.target as Node))menu.open=false})};const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')document.querySelectorAll<HTMLDetailsElement>('.compact-menu[open]').forEach(menu=>{menu.open=false;menu.querySelector<HTMLElement>('summary')?.focus()})};document.addEventListener('click',dismiss);document.addEventListener('keydown',escape);return()=>{document.removeEventListener('click',dismiss);document.removeEventListener('keydown',escape)}},[])
- useEffect(()=>{refresh().catch(e=>{setError(e.message);setLoading(false)})},[])
+ useEffect(()=>{refresh().catch(e=>{setError(snapshot?'Showing your last saved logbook; could not sync it. '+e.message:e.message);setLoading(false)})},[])
  useEffect(()=>{if(draft||coffeeDraft)dialog.current?.showModal();else dialog.current?.close()},[!!draft,!!coffeeDraft])
  useEffect(()=>{if(!coffeeDraft)setNewBagSource(null)},[coffeeDraft])
  useEffect(()=>{setInlineEdit(null);setInlineError('')},[selected])
@@ -219,7 +222,7 @@ export default function App({onLogout}:{onLogout?:()=>void}){
    </div>
    <section className="coffee-panel" aria-label="Selected coffee">
     <div className="coffee-selection">
-     <div className="coffee-title-row"><label>CURRENT BAG / PORTION</label>{coffee&&<details className="compact-menu bag-menu"><summary aria-label="Coffee actions"><Icon name="more"/></summary><div className="compact-menu-panel" onClick={e=>{if((e.target as HTMLElement).closest('button'))e.currentTarget.closest('details')?.removeAttribute('open')}}><button type="button" className="text-button coffee-details" disabled={copyingContext} onClick={()=>copyContext(coffee.id)}>{copyingContext?'Copying…':'Copy context'}</button><button className="text-button coffee-details" onClick={()=>{setNewBagSource(coffee.id);setCoffeeDraft(coffee)}}>New bag <Icon name="plus"/></button><button className="text-button coffee-details" onClick={()=>setCoffeeDraft(coffee)}>Bean details <Icon name="arrow"/></button><button type="button" className="text-button coffee-details" disabled={saving} onClick={()=>setCoffeeArchived(coffee,!coffee.archived)}>{coffee.archived?'Restore coffee':'Archive coffee'}</button><button className="text-button coffee-details" onClick={()=>setCoffeeDraft({name:'',roast_date:'',notes:'',revision:0})}><Icon name="plus"/>Add coffee</button></div></details>}</div>
+     <div className="coffee-title-row"><label>CURRENT BAG / PORTION</label>{coffee&&<details className="compact-menu bag-menu"><summary aria-label="Coffee actions"><Icon name="more"/></summary><div className="compact-menu-panel" onClick={e=>{if((e.target as HTMLElement).closest('button'))e.currentTarget.closest('details')?.removeAttribute('open')}}><button type="button" className="text-button coffee-details" disabled={copyingContext} onClick={()=>copyContext(coffee.id)}>{copyingContext?'Copying…':'Copy context'}</button><button className="text-button coffee-details" onClick={()=>{setNewBagSource(coffee.id);setCoffeeDraft(coffee)}}>New bag <Icon name="plus"/></button><button className="text-button coffee-details" onClick={()=>setCoffeeDraft(coffee)}>Bean details <Icon name="arrow"/></button><button type="button" className="text-button coffee-details" disabled={saving} onClick={()=>setCoffeeArchived(coffee,!coffee.archived)}>{(coffee.archived?'Restore ':'Archive ')+(coffee.source_coffee_id?'batch':'coffee')}</button><button className="text-button coffee-details" onClick={()=>setCoffeeDraft({name:'',roast_date:'',notes:'',revision:0})}><Icon name="plus"/>Add coffee</button></div></details>}</div>
      <details className="coffee-picker" ref={coffeePicker}>
       <summary aria-label="Choose current bag or portion"><span className="coffee-current-name">{coffee?coffeeDisplayName(coffee):'Choose coffee'}</span>{coffee?.tag_color&&<CoffeeMarker value={coffee.tag_color}/>}<span className="picker-chevron" aria-hidden="true">⌄</span></summary>
       <div className="coffee-options">

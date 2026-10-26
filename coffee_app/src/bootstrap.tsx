@@ -5,12 +5,15 @@ import App from './main'
 import {setAccessTokenProvider} from './api'
 import LoadingLogbook from './components/LoadingLogbook'
 import {captureInstallPrompt} from './installApp'
+import {clearSnapshot} from './stateSnapshot'
 import './style.css'
 declare const process:{env:{NODE_ENV?:string;PRIVY_APP_ID?:string;PRIVY_CLIENT_ID?:string}}
 function AuthenticatedApp(){
- const {ready,authenticated,login,logout,getAccessToken}=usePrivy()
+ const {ready,authenticated,login,logout,getAccessToken,user}=usePrivy()
  const [connected,setConnected]=useState(false)
  useEffect(()=>{setAccessTokenProvider(getAccessToken);setConnected(true);return()=>setAccessTokenProvider(async()=>null)},[getAccessToken])
+ // The saved logbook copy only paints for a confirmed session; it never outlives one.
+ useEffect(()=>{if(ready&&!authenticated)clearSnapshot()},[ready,authenticated])
  if(!ready||!connected)return <main className="initial-loading-view"><LoadingLogbook/></main>
  if(!authenticated)return <main className="landing">
   <header className="landing-header">
@@ -46,7 +49,7 @@ function AuthenticatedApp(){
   </section>
   <footer className="landing-footer"><span>Espresso</span><i/><span>Pour-over</span><i/><span>Your way</span></footer>
  </main>
- return <App onLogout={logout}/>
+ return <App onLogout={async()=>{clearSnapshot();await logout()}} snapshotOwner={user?.id}/>
 }
 const appId=process.env.PRIVY_APP_ID
 const production=process.env.NODE_ENV==='production'

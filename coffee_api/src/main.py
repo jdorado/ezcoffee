@@ -340,10 +340,14 @@ async def coffee_inventory(account_id):
     return beans,coffees
 
 async def state_for(account_id):
-    beans,coffees=await coffee_inventory(account_id)
-    shots=[clean(x) async for x in db.shots.find({'account_id':account_id,'deleted_at':{'$exists':False},'coffee_id':{'$in':[c['id'] for c in coffees]}})]
+    async def read_shots(): return [clean(x) async for x in db.shots.find({'account_id':account_id,'deleted_at':{'$exists':False}})]
+    async def read_messages(): return [clean(x) async for x in db.messages.find({'account_id':account_id}).sort('_id',1)] if AI_ENABLED else []
+    async def read_active_job(): return await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}},{'_id':0,'token':0,'account_id':0}) if AI_ENABLED else None
+    # The reads do not depend on each other, so they overlap instead of queueing one database round trip after another.
+    (beans,coffees),shots,messages,active_job,profile=await asyncio.gather(coffee_inventory(account_id),read_shots(),read_messages(),read_active_job(),read_profile(account_id))
+    coffee_ids={c['id'] for c in coffees}
+    shots=[row for row in shots if row.get('coffee_id') in coffee_ids]
     shots.sort(key=shot_sort_key)
-    messages=[clean(x) async for x in db.messages.find({'account_id':account_id}).sort('_id',1)] if AI_ENABLED else []
     legacy_job_ids={re.sub(r'-(?:user|assistant)$','',message['id']) for message in messages if 'coffee_id' not in message}
     legacy_jobs={row['id']:row.get('coffee_id') async for row in db.jobs.find({'account_id':account_id,'id':{'$in':list(legacy_job_ids)}})} if legacy_job_ids else {}
     for message in messages:
@@ -382,8 +386,7 @@ async def state_for(account_id):
                         'role':'assistant','text':text,'failed':True,'retryable':False
                     })
             messages=visible_messages
-    active_job=await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}},{'_id':0,'token':0,'account_id':0}) if AI_ENABLED else None
-    return {'beans':beans, 'coffees':coffees, 'shots':shots, 'profile':await read_profile(account_id), 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
+    return {'beans':beans, 'coffees':coffees, 'shots':shots, 'profile':profile, 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
 
 @app.get('/state')
 async def state(request:Request):
