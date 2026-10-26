@@ -29,6 +29,20 @@ const envKeys = [
   'VERCEL_GIT_COMMIT_REF',
 ]
 
+// Sign-in is Google and email only. Privy bundles wallet SDKs for features we never enable, and bootstrap.tsx turns
+// external wallets off so nothing calls into them. Drop these aliases and that flag together if wallet login is ever wanted.
+const unusedWalletPackages = [
+  '@coinbase/wallet-sdk',
+  '@walletconnect/ethereum-provider',
+  '@walletconnect/universal-provider',
+  '@solana/kit',
+  '@solana-program/system',
+  '@solana-program/token',
+  '@solana-program/token-2022',
+  '@solana-program/memo',
+  '@solana-program/compute-budget',
+]
+
 const perBuildKeys = ['APP_VERSION', 'BUILD_TIME', 'VERCEL_GIT_COMMIT_SHA', 'VERCEL_GIT_COMMIT_TIMESTAMP', 'VERCEL_GIT_COMMIT_REF']
 
 const originOf = (value) => {
@@ -80,6 +94,7 @@ module.exports = (_env, argv) => {
       extensions: ['.tsx', '.ts', '.js'],
       alias: {
         '@farcaster/mini-app-solana': false,
+        ...Object.fromEntries(unusedWalletPackages.map((name) => [name, false])),
       },
     },
     target: ['web', 'es2020'],

@@ -55,7 +55,7 @@ const appId=process.env.PRIVY_APP_ID
 const production=process.env.NODE_ENV==='production'
 if(!appId)throw new Error('The authenticated profile requires PRIVY_APP_ID')
 captureInstallPrompt()
-createRoot(document.getElementById('app')!).render(<PrivyProvider appId={appId} clientId={process.env.PRIVY_CLIENT_ID||undefined} config={{loginMethods:['google','email'],appearance:{theme:'light',accentColor:'#171717'}}}><AuthenticatedApp/></PrivyProvider>)
+createRoot(document.getElementById('app')!).render(<PrivyProvider appId={appId} clientId={process.env.PRIVY_CLIENT_ID||undefined} config={{loginMethods:['google','email'],appearance:{theme:'light',accentColor:'#171717'},externalWallets:{disableAllExternalWallets:true,walletConnect:{enabled:false}}}}><AuthenticatedApp/></PrivyProvider>)
 
 if(production && 'serviceWorker' in navigator){
  window.addEventListener('load',()=>{
