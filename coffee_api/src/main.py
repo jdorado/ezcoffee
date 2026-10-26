@@ -217,6 +217,7 @@ class Coffee(BaseModel):
     revision:int=0
 
 BEAN_FIELDS=('name','brand','origin','variety','process','roast_level','single_origin','decaf','notes','tag_color')
+STOCK_FIELDS=('purchased_on','roast_date','bag_g','freeze_date','frozen_g','frozen_portions','thaw_date','portion_g','source_coffee_id')
 
 class BeanDefinition(BaseModel):
     name:str=Field(min_length=1,max_length=200)
@@ -459,6 +460,11 @@ async def write_coffee(key,data,account_id):
             raise HTTPException(422,'Edit shared bean details on the bean definition.')
     if existing and existing.get('bean_id') and existing['bean_id']!=bean_id:
         raise HTTPException(422,'A bag cannot be moved to another bean definition.')
+    # Archiving or restoring never changes stock, so older records must not be re-validated against current doses and dates.
+    # A batch inherits its roast and freeze dates from its bag.
+    stock_fields=[field for field in STOCK_FIELDS if not (source_id and field in ('roast_date','freeze_date'))]
+    if existing and values.get('archived',False)!=existing.get('archived',False) and all(values.get(field)==existing.get(field) for field in stock_fields):
+        return await save(db.coffees,key,data,account_id)
     if values.get('purchased_on') and parse_roast_date(values['purchased_on']) is None:
         raise HTTPException(422,'Use a valid purchase date.')
     roast=parse_roast_date(values.get('roast_date',''))

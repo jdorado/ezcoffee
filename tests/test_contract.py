@@ -482,6 +482,23 @@ class CoffeeContract(unittest.TestCase):
   restored=self.http.put('/coffees/'+coffee['id'],json={**archived,'archived':False}).json()
   self.assertFalse(restored['archived'])
   self.assertEqual(self.http.post('/shots',json={'coffee_id':coffee['id']}).status_code,200)
+ def test_archiving_a_used_up_batch_does_not_revalidate_its_stock(self):
+  bean=self.http.post('/beans',json={'name':'Archive stock beans'}).json()
+  frozen=self.http.post('/coffees',json={'name':bean['name'],'bean_id':bean['id'],'roast_date':'2026-09-01','freeze_date':'2026-09-02','bag_g':250,'frozen_g':250}).json()
+  batch=self.http.post('/coffees',json={'name':bean['name'],'bean_id':bean['id'],'roast_date':'2026-09-01','freeze_date':'2026-09-02','source_coffee_id':frozen['id'],'thaw_date':'2026-09-20','portion_g':125}).json()
+  for _ in range(9): self.assertEqual(self.http.post('/shots',json={'coffee_id':batch['id'],'dose':14.5,'date':'2026-09-21'}).status_code,200)
+  bag=self.http.post('/coffees',json={'name':bean['name'],'bean_id':bean['id'],'roast_date':'2026-09-01','bag_g':250}).json()
+  consumed=self.http.post('/coffees',json={'name':bean['name'],'bean_id':bean['id'],'roast_date':'2026-09-01','source_coffee_id':bag['id'],'thaw_date':'2026-09-20','portion_g':125}).json()
+  for _ in range(9): self.assertEqual(self.http.post('/shots',json={'coffee_id':bag['id'],'dose':14.5,'date':'2026-09-21'}).status_code,200)
+  for row in (batch,consumed):
+   current=next(c for c in self.http.get('/state').json()['coffees'] if c['id']==row['id'])
+   archived=self.http.put('/coffees/'+row['id'],json={**current,'archived':True})
+   self.assertEqual(archived.status_code,200,archived.text)
+   restored=self.http.put('/coffees/'+row['id'],json={**current,'archived':False,'revision':archived.json()['revision']})
+   self.assertEqual(restored.status_code,200,restored.text)
+  # Real stock edits are still checked.
+  current=next(c for c in self.http.get('/state').json()['coffees'] if c['id']==batch['id'])
+  self.assertEqual(self.http.put('/coffees/'+batch['id'],json={**current,'portion_g':125,'thaw_date':'2026-09-25'}).status_code,422)
  def test_dated_shots_are_returned_newest_first_before_unknown_dates(self):
   older=self.http.post('/shots',json={'coffee_id':'coffee-1','date':'2026-09-01','dose':14}).json()
   newer=self.http.post('/shots',json={'coffee_id':'coffee-1','date':'2026-09-08T10:00:00+00:00','dose':14}).json()
