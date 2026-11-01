@@ -709,6 +709,11 @@ dialog input, dialog textarea, dialog select { scroll-margin-block: 20px 90px; }
 .filter-badge { display: grid; place-items: center; min-width: 17px; height: 17px; border-radius: 50%; background: var(--ink); color: white; font-size: 10px; }
 .compact-menu-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 12; width: min(280px, calc(100vw - 40px)); padding: 8px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 6px; box-shadow: var(--shadow-2); }
 .bag-menu > summary { border-color: transparent; background: transparent; width: 44px; padding: 10px; }
+.current-bag-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 12px 0; }
+.current-bag-picker label { margin: 0; font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; color: var(--muted); }
+.current-bag-picker select { flex: 1; min-width: 0; max-width: 100%; width: auto; margin: 0; padding: 9px 28px 9px 10px; font-size: 12px; }
+.current-bag-picker button { display: inline-flex; align-items: center; gap: 4px; padding: 8px 0; font-size: 11px; }
+.current-bag-picker button svg { width: 12px; height: 12px; }
 .bag-menu .compact-menu-panel button { width: 100%; min-height: 44px; padding: 12px; justify-content: flex-start; font-family: var(--font-ui); font-size: 13px; letter-spacing: 0; text-transform: none; border-radius: 3px; color: var(--ink); }
 .bag-menu .compact-menu-panel button:hover { background: var(--surface-2); }
 .compact-menu-panel.logbook-filters { display: grid; gap: 14px; margin: 0; padding: 16px; }

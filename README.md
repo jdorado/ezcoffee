@@ -133,6 +133,10 @@ it planned until you log a brew. Stale edits are rejected with a reload action.
 
 Bean details owns one shared coffee definition (name, roaster and bean attributes).
 Each purchase is a **bag**, and each portion started from that bag is a **batch**.
+The coffee picker shows each coffee once, with its active bag count. Use the
+**Bag / portion** selector to switch purchases and **Manage bags** to edit their
+separate roast, freeze and thaw dates or select an older batch. Brew and chat
+history stay with the coffee; new brews and plans use the selected bag or batch.
 The compact bag rows expose **+ Bag**, **Edit**, and **Delete**; batches appear
 indented beneath their bag with the same edit and delete actions. **+ Batch**
 creates a 125 g, 250 g, or 500 g batch dated today. Bag size, purchase date,
