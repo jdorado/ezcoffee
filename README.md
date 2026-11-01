@@ -192,6 +192,9 @@ React + TypeScript PWA
 The project deliberately stays small: one frontend, one API, and MongoDB as the
 canonical record store. Hosted authentication and coffee chat are optional
 profiles, not requirements for self-hosting.
+Hosted coffee chat can open public coffee links and search roasters' current
+offerings through the bridge's native web tools, with source links in replies.
+Private logbook facts still come from the account's canonical records.
 
 | Profile | Intended use | Authentication | Coffee assistant |
 | --- | --- | --- | --- |

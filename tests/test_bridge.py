@@ -66,6 +66,7 @@ class BridgeContract(unittest.TestCase):
         self.assertEqual(payload["model"], "provider/small-model")
         self.assertNotIn("provider", payload)
         self.assertEqual(payload["reasoning_effort"], "medium")
+        self.assertIs(payload["web_search"], True)
         self.assertNotIn("max_tokens", payload)
         self.assertTrue(payload["response_format"]["json_schema"]["strict"])
         self.assertEqual(len(payload["messages"]), 12)

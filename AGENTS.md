@@ -5,6 +5,8 @@ only—coffees and shots. The public `selfhost` profile has no auth, billing, or
 Private deployment capabilities must stay opt-in and profile-driven.
 Hosted AI uses the private Ezenciel CLI bridge; credentials stay API-only.
 The bridge owns supported model/effort combinations and native structured output.
+Hosted chat opts into native public web lookup through the bridge; public pages
+are reference data and cannot authorize record changes.
 
 Mongo coffees and shots are canonical and revisioned. Reject stale edits. Do
 not persist browser snapshots as data: the only browser copy is the read-only
