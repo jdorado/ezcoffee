@@ -132,22 +132,17 @@ shot supports the same quick edits plus **Edit plan**; saving its recipe keeps
 it planned until you log a brew. Stale edits are rejected with a reload action.
 
 Bean details owns one shared coffee definition (name, roaster and bean attributes).
-Each purchase is a **bag**, and each portion started from that bag is a **batch**.
-The coffee picker shows each coffee once, with its active bag count. Use the
-**Bag / portion** selector to switch purchases and **Manage bags** to edit their
-separate roast, freeze and thaw dates or select an older batch. Brew and chat
-history stay with the coffee; new brews and plans use the selected bag or batch.
-The compact bag rows expose **+ Bag**, **Edit**, and **Delete**; batches appear
-indented beneath their bag with the same edit and delete actions. **+ Batch**
-creates a 125 g, 250 g, or 500 g batch dated today. Bag size, purchase date,
-roast date and optional freeze date are edited on the bag row. Shared bean
-changes apply to every bag. Scores remain scoped to each purchase and its batches.
+Each coffee is sequential: recording a **new bag** or **thaw** makes that record
+current and replaces the previous one. The coffee picker shows each bean once,
+sorted by rating. **Dates & history** records roast, freeze and thaw dates and
+keeps earlier records available for corrections. Editing an earlier date does
+not make that record current again.
 
-Bean definitions, bags and batches use the existing revisioned coffees collection,
-linked by `bean_id` and `source_coffee_id`; shots retain their original target IDs.
-Legacy entries are presented as a definition with one bag, without rewriting shots.
-Deleting a bag soft-deletes its batches and hides their shots from the logbook;
-the stored history is retained. Deleting a batch corrects its stock allocation.
+Weights, remaining grams and freezer capacity are not tracked. Shot logs can be
+incomplete. Brew and chat history remain shared across records of the same bean;
+new brews and plans use its current record. Existing record IDs, old weights and
+shot links are preserved. Deleting a bag hides it and its thaws from the visible
+logbook without deleting stored shot history.
 
 The displayed active age counts days before freezing and after thawing as a
 rough freshness guide. Freezing slows aging but does not stop it completely;

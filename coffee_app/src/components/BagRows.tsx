@@ -1,78 +1,48 @@
 import {forwardRef,useImperativeHandle,useState} from 'react'
 import {api,today} from '../api'
-import type {Bean,Coffee,Shot} from '../api'
-import {currentBagCoffee} from '../coffeePicker'
+import type {Bean,Coffee} from '../api'
+import {coffeeBagId} from '../coffeePicker'
 import './BagRows.css'
 
-type Editor={kind:'bag'|'batch';row:Partial<Coffee>;parent?:Coffee;frozen?:boolean}
-type Props={startAdding?:boolean;beanId?:string;coffees:Coffee[];shots:Shot[];selected:string;ensureBean:()=>Promise<Bean>;refresh:()=>Promise<void>;select:(id:string)=>void}
+type Editor={row:Partial<Coffee>;parent?:Coffee;frozen?:boolean}
+type Props={startAdding?:boolean;beanId?:string;coffees:Coffee[];ensureBean:()=>Promise<Bean>;refresh:()=>Promise<void>;select:(id:string)=>void}
 export type BagRowsHandle={savePending:()=>Promise<boolean|undefined>}
 const dateValue=(value='')=>{if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value;const time=Date.parse(value);if(Number.isNaN(time))return '';const d=new Date(time);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 const dateLabel=(value='')=>value?new Date(dateValue(value)+'T12:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short'}):'Not set'
-const sizeLabel=(grams:number)=>grams===1000?'1 kg':`${grams} g`
-const bagEditor=(row:Partial<Coffee>):Editor=>({kind:'bag',row,frozen:!!row.freeze_date})
-const newBag=()=>bagEditor({bag_g:1000,roast_date:'',freeze_date:'',revision:0})
+const newBag=():Editor=>({row:{roast_date:'',freeze_date:'',revision:0}})
 
-export default forwardRef<BagRowsHandle,Props>(function BagRows({beanId,coffees,shots,selected,ensureBean,refresh,select,startAdding},ref){
+export default forwardRef<BagRowsHandle,Props>(function BagRows({beanId,coffees,ensureBean,refresh,select,startAdding},ref){
  const [editor,setEditor]=useState<Editor|null>(()=>startAdding?newBag():null),[busy,setBusy]=useState(false),[error,setError]=useState('')
  useImperativeHandle(ref,()=>({savePending:saveRow}))
- const bags=coffees.filter(c=>c.bean_id===beanId&&!c.source_coffee_id).sort((a,b)=>(a.created_at||a.purchased_on||a.id).localeCompare(b.created_at||b.purchased_on||b.id))
- const selectedRow=coffees.find(c=>c.id===selected)
- const bag=bags.find(c=>c.id===(selectedRow?.source_coffee_id||selected))||bags.at(-1)
- const children=(parent:Coffee)=>coffees.filter(c=>c.source_coffee_id===parent.id).sort((a,b)=>(a.created_at||a.id).localeCompare(b.created_at||b.id))
- const used=(row:Coffee)=>shots.filter(s=>s.coffee_id===row.id&&s.status==='logged').reduce((sum,s)=>sum+(s.dose||0),0)
- const remaining=(parent:Coffee)=>Math.max(0,(parent.freeze_date?parent.frozen_g||0:parent.bag_g||0)-children(parent).reduce((sum,c)=>sum+(c.portion_g||0),0)-(parent.freeze_date?0:used(parent)))
- const batches=bag?children(bag):[]
- const bagName=(row:Coffee)=>`Bag ${bags.indexOf(row)+1} · ${row.bag_g?sizeLabel(row.bag_g):'Size not set'}`
- const editingBag=editor?.kind==='bag'
+ const rows=coffees.filter(row=>beanId&&row.bean_id===beanId)
+ const current=rows.find(row=>row.current),bag=current?rows.find(row=>row.id===coffeeBagId(current)):undefined
+ const history=rows.filter(row=>row.id!==current?.id).sort((a,b)=>(b.created_at||b.thaw_date||b.roast_date||'').localeCompare(a.created_at||a.thaw_date||a.roast_date||''))
  async function run(action:()=>Promise<void>){if(busy)return false;setBusy(true);setError('');try{await action();return true}catch(e){setError((e as Error).message);return false}finally{setBusy(false)}}
- function chooseBag(id:string){const next=bags.find(row=>row.id===id);if(!next)return;setEditor(null);setError('');select(currentBagCoffee(coffees,next).id)}
  async function saveRow(){if(!editor)return;return run(async()=>{
-  const row=editor.row,parent=editor.parent
-  if(editor.kind==='bag'&&editor.frozen){
-   if(!row.freeze_date)throw new Error('Set the freeze date before saving.')
-   if(!row.roast_date)throw new Error('Set the roast date before freezing this bag.')
-  }
+  const {row,parent,frozen}=editor
+  if(!parent&&frozen&&!row.freeze_date)throw new Error('Set the freeze date before saving.')
   const bean=await ensureBean()
-  const payload=editor.kind==='bag'?{...row,...bean,id:row.id,revision:row.revision||0,archived:row.archived||false,bean_id:bean.id,source_coffee_id:'',roast_date:row.roast_date||'',purchased_on:row.purchased_on||'',bag_g:row.bag_g,freeze_date:editor.frozen?row.freeze_date:'',frozen_g:editor.frozen?(row.frozen_g??row.bag_g):null,portion_g:null,thaw_date:'',frozen_portions:[]}:{...row,...bean,id:row.id,revision:row.revision||0,archived:row.archived||false,bean_id:bean.id,source_coffee_id:parent!.id,roast_date:parent!.roast_date,freeze_date:parent!.freeze_date||'',bag_g:null,frozen_g:null,frozen_portions:[],portion_g:row.portion_g,thaw_date:row.thaw_date}
+  const payload={...row,...bean,id:row.id,revision:row.revision||0,archived:row.archived||false,bean_id:bean.id,source_coffee_id:parent?.id||'',roast_date:parent?.roast_date||row.roast_date||'',freeze_date:parent?parent.freeze_date||'':frozen?row.freeze_date:'',thaw_date:parent?row.thaw_date:''}
   const saved=await api(row.id?'/coffees/'+row.id:'/coffees',row.id?'PUT':'POST',payload)
-  setEditor(null);await refresh();if(!row.id||editor.kind==='batch')select(saved.id)
+  setEditor(null);await refresh();if(!row.id)select(saved.id)
  })}
- async function addBatch(parent:Coffee,size:125|250|500){await run(async()=>{
-  const bean=await ensureBean();const saved=await api('/coffees','POST',{...bean,id:undefined,revision:0,bean_id:bean.id,source_coffee_id:parent.id,roast_date:parent.roast_date,freeze_date:parent.freeze_date||'',portion_g:size,thaw_date:today()})
-  setEditor(null);await refresh();select(saved.id)
- })}
- async function remove(row:Coffee){const nested=children(row),ids=new Set([row.id,...nested.map(c=>c.id)]),count=shots.filter(s=>ids.has(s.coffee_id)).length
-  if(!window.confirm(`Delete this ${row.source_coffee_id?'batch':'bag'}${nested.length?` and its ${nested.length} batches`:''}?${count?` Its ${count} shots will be removed from the visible logbook.`:''}`))return
-  await run(async()=>{await ensureBean();await api(`/coffees/${row.id}?revision=${row.revision}`,'DELETE');setEditor(null);await refresh();if(row.source_coffee_id){const siblings=children(bag!).filter(c=>c.id!==row.id);select(siblings.at(-1)?.id||row.source_coffee_id)}else{const next=bags.filter(c=>c.id!==row.id).at(-1);if(next)select(children(next).at(-1)?.id||next.id)}})
+ function edit(row:Coffee){setError('');setEditor({row,parent:row.source_coffee_id?coffees.find(parent=>parent.id===row.source_coffee_id):undefined,frozen:!!row.freeze_date})}
+ async function remove(row:Coffee){
+  if(!window.confirm(`Delete this ${row.source_coffee_id?'thaw':'bag'} record?${row.source_coffee_id?'':' Its thaw records will also be removed.'} Its shots will leave the visible logbook.`))return
+  await run(async()=>{await api(`/coffees/${row.id}?revision=${row.revision}`,'DELETE');setEditor(null);await refresh()})
  }
- function rowEditor(value:Editor){
-  const row=value.row,isBag=value.kind==='bag',frozen=!!value.frozen
-  const set=(changes:Partial<Coffee>)=>setEditor(current=>current?{...current,row:{...current.row,...changes}}:current)
-  const setFrozen=(next:boolean)=>setEditor(current=>current?{...current,frozen:next,row:{...current.row,freeze_date:next?(current.row.freeze_date||today()):'',frozen_g:next?(current.row.frozen_g??current.row.bag_g):null}}:current)
-  const setSize=(grams:number)=>set({bag_g:grams,frozen_g:frozen?(row.frozen_g===row.bag_g?grams:Math.min(row.frozen_g||grams,grams)):null})
-  return <div className="inventory-editor" role="group" aria-label={isBag?(row.id?'Edit bag':'New bag'):'Edit batch'}>
-   {isBag?<>
-    <div className="inventory-size" role="group" aria-label="Bag size"><span>Bag size</span><div className="inventory-options">{[250,500,1000].map(size=><button type="button" key={size} disabled={busy} aria-pressed={row.bag_g===size} onClick={()=>setSize(size)}>{sizeLabel(size)}</button>)}<label className="inventory-custom-size"><input aria-label="Custom bag size in grams" type="number" min="1" max="10000" placeholder="Other" value={[250,500,1000].includes(row.bag_g||0)?'':row.bag_g??''} onChange={e=>setSize(Number(e.target.value))}/><span>g</span></label></div></div>
-    <div className="inventory-dates"><label>Roasted<input type="date" value={dateValue(row.roast_date)} onInput={e=>set({roast_date:e.currentTarget.value})}/></label></div>
-    <div className="inventory-storage"><div className="inventory-options" role="group" aria-label="Bag storage"><button type="button" disabled={busy} aria-pressed={!frozen} onClick={()=>setFrozen(false)}>Room temperature</button><button type="button" disabled={busy} aria-pressed={frozen} onClick={()=>{if(!frozen)setFrozen(true)}}>Freezer</button></div>{frozen&&<label>Frozen<input type="date" value={dateValue(row.freeze_date)} onInput={e=>set({freeze_date:e.currentTarget.value})}/></label>}</div>
-   </>:<div className="inventory-dates"><label>Size<select value={row.portion_g||125} onChange={e=>set({portion_g:Number(e.target.value) as 125|250|500})}>{[125,250,500].map(size=><option key={size} value={size}>{size} g</option>)}</select></label><label>Started<input type="date" value={dateValue(row.thaw_date)} onInput={e=>set({thaw_date:e.currentTarget.value})}/></label></div>}
-   <div className="inventory-editor-actions"><button className="inventory-save" type="button" disabled={busy} onClick={saveRow}>{busy?'Saving…':row.id?'Save changes':'Add bag'}</button><button type="button" disabled={busy} onClick={()=>{setEditor(null);setError('')}}>Cancel</button>{row.id&&<button className="inventory-delete" type="button" disabled={busy} onClick={()=>remove(row as Coffee)}>Delete {value.kind}</button>}</div>
-  </div>
- }
- return <section className="bean-inventory" aria-label="Bags and batches">
-  <div className="inventory-heading"><strong>{editingBag?(editor.row.id?'Edit bag':'New bag'):'Bags'}</strong>{!editingBag&&<button type="button" disabled={busy} onClick={()=>{setError('');setEditor(newBag())}}>+ Bag</button>}</div>
+ function record(row:Coffee){return <div className="inventory-row" key={row.id}><div className="inventory-name"><span>{row.source_coffee_id?'Thawed '+dateLabel(row.thaw_date):'Bag · roasted '+dateLabel(row.roast_date)}{row.current&&<span className="inventory-current">Current</span>}</span><small>{row.source_coffee_id?'Roasted '+dateLabel(row.roast_date):row.freeze_date?'Frozen '+dateLabel(row.freeze_date):'Room temperature'}</small></div><button type="button" disabled={busy} className="inventory-edit" onClick={()=>edit(row)}>Edit dates</button></div>}
+ const row=editor?.row
+ const set=(changes:Partial<Coffee>)=>setEditor(value=>value?{...value,row:{...value.row,...changes}}:value)
+ return <section className="bean-inventory" aria-label="Coffee dates and history">
+  <div className="inventory-heading"><strong>Dates & history</strong>{!editor&&<div className="inventory-actions"><button type="button" disabled={busy} onClick={()=>{setError('');setEditor(newBag())}}>+ New bag</button>{bag&&<button type="button" disabled={busy||bag.archived} onClick={()=>{setError('');setEditor({row:{thaw_date:today(),revision:0},parent:bag})}}>Thaw coffee</button>}</div>}</div>
+  <p className="inventory-empty">A new bag or thaw replaces the previous one. Only dates are tracked.</p>
   {error&&<p role="alert">{error}</p>}
-  {editingBag?rowEditor(editor):bag?<>
-   <div className="inventory-bag-picker"><select aria-label="Choose bag" value={bag.id} disabled={busy} onChange={e=>chooseBag(e.target.value)}>{bags.map(row=><option key={row.id} value={row.id}>{bagName(row)}</option>)}</select><button type="button" disabled={busy} onClick={()=>{setError('');setEditor(bagEditor(bag))}}>Edit bag</button></div>
-   <div className="inventory-bag-summary">{!!batches.length&&<button type="button" disabled={busy} aria-pressed={selected===bag.id} onClick={()=>select(bag.id)}>Bag history</button>}<span>Roasted {dateLabel(bag.roast_date)}</span><span>{bag.freeze_date?(bag.frozen_g==null?'Frozen · amount unknown':`${Math.round(remaining(bag))} g in freezer`):bag.bag_g?`~${Math.round(remaining(bag))} g ${batches.length?'in bag':'left'}`:'Room temperature'}</span></div>
-   <div className="inventory-batches" aria-label="Batches in selected bag">
-    <div className="inventory-batch-heading"><strong>Batches</strong>{!!(bag.bag_g||bag.frozen_g)&&<div className="inventory-options" role="group" aria-label="Start a new batch today">{([125,250,500] as const).map(size=><button type="button" key={size} disabled={busy||!!editor||bag.archived||size>remaining(bag)} aria-label={`Add ${size} g batch`} onClick={()=>addBatch(bag,size)}>+ {size} g</button>)}</div>}</div>
-    {!batches.length&&<p className="inventory-empty">{!(bag.bag_g||bag.frozen_g)?'Set the bag size to add batches.':bag.freeze_date?'Tap a size to take your first batch out.':'Using the whole bag. Tap a size to split off a batch.'}</p>}
-    {batches.map((batch,i)=><div className="inventory-batch" key={batch.id}>
-     {editor?.row.id===batch.id?rowEditor(editor):<div className="inventory-row"><button type="button" className="inventory-name" disabled={busy} aria-pressed={selected===batch.id} onClick={()=>select(batch.id)}><span>Batch {i+1} <span className="inventory-batch-size">· {batch.portion_g} g</span>{selected===batch.id&&<span className="inventory-current">Current</span>}</span><small>{bag.freeze_date?'Thawed':'Started'} {dateLabel(batch.thaw_date)} · ~{Math.round(Math.max(0,(batch.portion_g||0)-used(batch)))} g left</small></button><button type="button" className="inventory-edit" disabled={busy} aria-label={`Edit batch ${i+1}`} onClick={()=>{setError('');setEditor({kind:'batch',row:batch,parent:bag})}}>Edit</button></div>}
-    </div>)}
-   </div>
-  </>:<p className="inventory-empty">Add your first bag of these beans.</p>}
+  {editor&&row?<div className="inventory-editor" role="group" aria-label={row.id?'Edit dates':editor.parent?'New thaw':'New bag'}>
+   <div className="inventory-dates">{editor.parent?<label>Thawed<input type="date" value={dateValue(row.thaw_date)} onInput={e=>set({thaw_date:e.currentTarget.value})}/></label>:<label>Roasted<input type="date" value={dateValue(row.roast_date)} onInput={e=>set({roast_date:e.currentTarget.value})}/></label>}</div>
+   {!editor.parent&&<div className="inventory-storage"><div className="inventory-options" role="group" aria-label="Bag storage"><button type="button" disabled={busy} aria-pressed={!editor.frozen} onClick={()=>setEditor({...editor,frozen:false})}>Room temperature</button><button type="button" disabled={busy} aria-pressed={!!editor.frozen} onClick={()=>setEditor({...editor,frozen:true,row:{...row,freeze_date:row.freeze_date||today()}})}>Freezer</button></div>{editor.frozen&&<label>Frozen<input type="date" value={dateValue(row.freeze_date)} onInput={e=>set({freeze_date:e.currentTarget.value})}/></label>}</div>}
+   <div className="inventory-editor-actions"><button className="inventory-save" type="button" disabled={busy} onClick={saveRow}>{busy?'Saving…':row.id?'Save dates':editor.parent?'Record thaw':'Add bag'}</button><button type="button" disabled={busy} onClick={()=>{setEditor(null);setError('')}}>Cancel</button>{row.id&&<button className="inventory-delete" type="button" disabled={busy} onClick={()=>remove(row as Coffee)}>Delete record</button>}</div>
+  </div>:current?record(current):<p className="inventory-empty">Add a bag to start using these beans.</p>}
+  {!!history.length&&<details className="inventory-history"><summary>Earlier records ({history.length})</summary>{history.map(record)}</details>}
  </section>
 })
