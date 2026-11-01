@@ -9,6 +9,9 @@ Hosted chat opts into native public web lookup through the bridge; public pages
 are reference data and cannot authorize record changes.
 
 Mongo coffees and shots are canonical and revisioned. Reject stale edits. Do
+not infer inventory from shot logs. For each bean, the API marks its most
+recently created bag or thaw record as current; earlier records are history.
+Bag and thaw creation require no weights or remaining-stock accounting. Do
 not persist browser snapshots as data: the only browser copy is the read-only
 startup cache in `stateSnapshot.ts`, which paints the first screen, is replaced
 by every load, is tied to one account and build, and is cleared on sign-out.
