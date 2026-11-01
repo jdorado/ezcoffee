@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # MongoDB 8.0 refuses to start on Linux 6.19+; this runner uses Linux 6.8.
+    runs-on: ubuntu-22.04
     services:
       mongo:
         image: mongo:8.0
