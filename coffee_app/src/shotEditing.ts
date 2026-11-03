@@ -1,5 +1,6 @@
 import type {Shot,TrackedField} from './api'
 
+export const shotRatingValues=[1,1.5,2,2.5,3,3.5,4,4.5,5] as const
 export const numericShotLimits={dose:[0,1000],yield_g:[0,1000],stop_yield_g:[0,1000],target_yield_g:[0,1000],seconds:[0,600],water_temp_c:[0,100],water_g:[0,5000],ice_g:[0,5000],bloom_seconds:[0,600],first_drip:[0,600],rating:[1,5]} as const
 export type EditableShotField=keyof typeof numericShotLimits|'grind'|'temp'
 export type ShotMetric={field:EditableShotField|null;value:string|number|null;unit:string;label:string;note?:string}
@@ -25,7 +26,7 @@ export function inlineShotPatch(edit:InlineShotEdit):Partial<Shot>{
  }else if(field!=='grind'){
   changed=changed===''?null:Number(changed)
   const [min,max]=numericShotLimits[field]
-  if(field==='rating'&&changed!=null&&!Number.isInteger(changed))throw new Error('Choose 1 to 5 stars, or clear the rating.')
+  if(field==='rating'&&changed!=null&&!Number.isInteger(changed*2))throw new Error('Choose 1 to 5 stars in half-star steps, or clear the rating.')
   if(changed!=null&&(!Number.isFinite(changed)||changed<min||changed>max||(['dose','target_yield_g'].includes(field)&&changed===0)))throw new Error(`Enter ${field==='dose'||field==='target_yield_g'?'more than 0':min} to ${max}, or leave it blank.`)
  }
  const patch:Partial<Shot>={coffee_id:shot.coffee_id,revision:shot.revision,[field]:changed}

@@ -282,8 +282,19 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual(edited['recorded_at'],first['recorded_at'])
   self.assertEqual(edited['taste_balance'],'slightly_sour')
   self.assertEqual(edited['rating'],4)
-  for invalid in [0,6,1.5,True]:
+  for rating in [1.5,2.5,3.5,4.5]:
+   response=self.http.put('/shots/'+first['id'],json={'coffee_id':c['id'],'revision':edited['revision'],'rating':rating})
+   self.assertEqual(response.status_code,200,response.text)
+   edited=response.json()
+   self.assertEqual(edited['rating'],rating)
+  self.assertEqual(next(s for s in self.http.get('/state').json()['shots'] if s['id']==first['id'])['rating'],4.5)
+  half_rated=self.http.post('/shots',json={'coffee_id':c['id'],'rating':3.5})
+  self.assertEqual(half_rated.status_code,200,half_rated.text)
+  self.assertEqual(half_rated.json()['rating'],3.5)
+  self.http.delete('/shots/'+half_rated.json()['id']+'?revision='+str(half_rated.json()['revision']))
+  for invalid in [0,6,0.5,3.25,3.7,True,'3.5']:
    self.assertEqual(self.http.post('/shots',json={'coffee_id':c['id'],'rating':invalid}).status_code,422)
+  self.assertEqual(self.http.put('/shots/'+first['id'],json={'coffee_id':c['id'],'revision':first['revision'],'rating':3.5}).status_code,409)
   cleared=self.http.put('/shots/'+first['id'],json={'coffee_id':c['id'],'revision':edited['revision'],'rating':None}).json()
   self.assertIsNone(cleared['rating'])
   rows=[s['id'] for s in self.http.get('/state').json()['shots'] if s['coffee_id']==c['id']]
@@ -836,6 +847,8 @@ class CoffeeContract(unittest.TestCase):
   self.assertEqual((created['coffee_id'],created['revision'],created['rating']),('coffee-1',1,5))
   self.assertIsNone(created['target_yield_max_g'])
   self.assertEqual(created['target_yield_g'],30)
+  half_rated=self.http.portal.call(apply_inference_action,job,{'kind':'shot','id':created['id'],'data':{'revision':created['revision'],'rating':'3.5'}})
+  self.assertEqual(half_rated['rating'],3.5)
   database.client.close()
  def test_hosted_accounts_are_isolated(self):
   from unittest.mock import patch

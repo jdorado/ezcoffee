@@ -241,7 +241,7 @@ class Shot(BaseModel):
     body:Literal['','light','medium','full']=''
     texture:Literal['','smooth','grainy','gritty']=''
     choked:bool=False
-    rating:int|None=Field(default=None,ge=1,le=5,strict=True)
+    rating:float|None=Field(default=None,ge=1,le=5,multiple_of=0.5,strict=True)
     dose:float|None=Field(default=None,gt=0,le=1000)
     grind:str=Field(default='',max_length=80)
     paper:Literal['yes','no','unknown']='unknown'
@@ -851,12 +851,9 @@ def coerce_revision(value):
     return None
 
 def coerce_rating(value):
-    # Rating is strict 1-5 int. Accept "4" or 4.0; leave the rest for validation.
-    if isinstance(value,bool): return value
-    if isinstance(value,int): return value
-    if isinstance(value,float) and value.is_integer(): return int(value)
-    if isinstance(value,str) and value.strip().isdigit():
-        try: return int(value.strip())
+    # Model replies may spell out numbers; the Shot schema enforces half steps.
+    if isinstance(value,str) and re.fullmatch(r'\d+(?:\.\d+)?',value.strip()):
+        try: return float(value.strip())
         except ValueError: return value
     return value
 
@@ -872,12 +869,8 @@ def repair_inference_data(kind, data, job, existing=None):
     if dropped: repairs.append('dropped:'+','.join(sorted(dropped)))
     if 'rating' in data and not isinstance(data['rating'],bool):
         original=data['rating']; coerced=coerce_rating(original)
-        if isinstance(coerced,int) and not isinstance(original,int):
-            # Accept 4.0 and "4"; anything else falls through to validation.
-            if isinstance(original,float) and coerced==original:
-                data['rating']=coerced; repairs.append('rating')
-            elif isinstance(original,str) and str(coerced)==original.strip():
-                data['rating']=coerced; repairs.append('rating')
+        if isinstance(original,str) and isinstance(coerced,float):
+            data['rating']=coerced; repairs.append('rating')
     target=data.get('target_yield_g'); target_max=data.get('target_yield_max_g')
     if isinstance(target,(int,float)) and not isinstance(target,bool) and isinstance(target_max,(int,float)) and not isinstance(target_max,bool) and target_max<target:
         # Same rule as next_shot_candidates: never persist an inverted range.
