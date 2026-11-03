@@ -131,6 +131,7 @@ Escape or the cross cancels. The pencil opens the full details popup. The next
 shot supports the same quick edits plus **Edit plan**; saving its recipe keeps
 it planned until you log a brew. Stale edits are rejected with a reload action.
 Enjoyment ratings run from 1 to 5 stars in half-star steps, including 3.5 and 4.5.
+Tap the left or right half of a star to choose a half or whole rating.
 
 Bean details owns one shared coffee definition (name, roaster and bean attributes).
 Each coffee is sequential: recording a **new bag** or **thaw** makes that record
