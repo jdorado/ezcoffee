@@ -1,5 +1,14 @@
 # Coffee Logbook contributor notes
 
+## Situation (running hypothesis; keep it current)
+
+- Who: Juan alone; personal use plus a public selfhost profile. (inferred, 2026-11-07)
+- Stage and scale: done-enough personal tool; two records, a handful of users. (inferred, 2026-11-07)
+- Objective: log coffees and shots with minimal friction. (inferred from this file, 2026-11-07)
+- Optimize for: staying small; no new product areas without an explicit scope change. (owner, this file)
+- Quality anchor: production-correct for personal use; testing proportional to the change. (owner, this file)
+- Non-negotiables: canonical revisioned Mongo records, isolated test DB, no auth weakening. (owner, this file)
+
 Keep the product small: React/TypeScript, FastAPI, and MongoDB, with two records
 only—coffees and shots. The public `selfhost` profile has no auth, billing, or AI.
 Private deployment capabilities must stay opt-in and profile-driven.
