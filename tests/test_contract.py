@@ -683,7 +683,7 @@ class CoffeeContract(unittest.TestCase):
  def test_failed_chat_retry_reuses_the_original_message_and_is_bounded(self):
   from pymongo import MongoClient
   from unittest.mock import AsyncMock, patch
-  from src.main import CHAT_RETRY_LIMIT, state_for
+  from src.main import CHAT_RETRY_LIMIT, BridgeSettings, state_for
   database=MongoClient(os.getenv('MONGO_URL','mongodb://127.0.0.1:27019'))[os.environ['MONGO_DB']]
   job_id='retryable-chat'
   database.jobs.insert_one({'account_id':'test-owner','id':job_id,'message':'Try again.','coffee_id':'coffee-1','shot_date':'2026-09-15','status':'failed','created_at':'2026-09-15T00:00:00+00:00','receipts':[],'retry_count':0,'action_attempted':False,'error':'Coffee chat is temporarily unavailable. Please try again.'})
@@ -708,6 +708,21 @@ class CoffeeContract(unittest.TestCase):
   database.jobs.update_one({'account_id':'test-owner','id':job_id},{'$set':{'status':'failed','retry_count':CHAT_RETRY_LIMIT,'error':'Coffee chat is temporarily unavailable. Please try again.'}})
   limited=self.http.post('/chat/'+job_id+'/retry')
   self.assertEqual(limited.status_code,409)
+  # A legacy job exhausted its retries on the old default. The same message
+  # can now be retried with the new model without duplicating the user turn.
+  database.jobs.update_one({'account_id':'test-owner','id':job_id},{'$set':{'model':'gpt-6.1-sol','reasoning_effort':'medium'}})
+  with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','claude-sonnet-5-5','http://bridge/v1')),patch('src.main.run_chat',new=AsyncMock()) as run:
+   state=self.http.portal.call(state_for,'test-owner')
+   self.assertTrue(next(row for row in state['messages'] if row['id']==job_id+'-user')['retryable'])
+   response=self.http.post('/chat/'+job_id+'/retry')
+   self.http.portal.call(asyncio.sleep,0)
+   self.assertEqual(response.status_code,200)
+   self.assertEqual(response.json()['retry_count'],1)
+   self.assertEqual(run.await_args.args[0]['model'],'claude-sonnet-5-5')
+   self.assertEqual(database.messages.count_documents({'account_id':'test-owner','id':job_id+'-user'}),1)
+  database.jobs.update_one({'account_id':'test-owner','id':job_id},{'$set':{'status':'failed','model':'gpt-6.1-sol','bridge_overrides':{'model':'gpt-6.1-sol'},'retry_count':CHAT_RETRY_LIMIT}})
+  with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','claude-sonnet-5-5','http://bridge/v1')):
+   self.assertEqual(self.http.post('/chat/'+job_id+'/retry').status_code,409)
   database.messages.delete_many({'account_id':'test-owner','id':{'$in':[job_id+'-user',job_id+'-assistant']}})
   database.jobs.delete_one({'account_id':'test-owner','id':job_id})
   database.client.close()

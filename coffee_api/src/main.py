@@ -35,6 +35,23 @@ logger = logging.getLogger(__name__)
 CHAT_ACTION_REJECTED = 'Coffee chat could not safely apply that change. Your existing records are safe. Please send it again to retry.'
 PLAN_SYNC_MESSAGE = 'The reply suggested a new recipe but the planned shot was not updated. Please send it again to retry.'
 CHAT_RETRY_LIMIT = 3
+
+def chat_selection(job, settings):
+    overrides = job.get('bridge_overrides', {})
+    return {key: overrides.get(key) or getattr(settings, key) for key in ('model', 'reasoning_effort')}
+
+def chat_retry_count(job, selection):
+    if any(job.get(key) and job[key] != value for key, value in selection.items()):
+        return 0
+    try:
+        return int(job.get('retry_count') or 0)
+    except (TypeError, ValueError):
+        return 0
+
+def can_retry_chat(job, selection):
+    return (chat_retry_count(job, selection) < CHAT_RETRY_LIMIT
+            and not job.get('action_attempted') and not job.get('receipts'))
+
 def bridge_failure_code(exc):
     code=getattr(exc,'code',None)
     if isinstance(code,str) and code:
@@ -368,18 +385,18 @@ async def state_for(account_id):
             'account_id':account_id,'id':{'$in':list(unanswered_job_ids)},'status':'failed'
         })} if unanswered_job_ids else {}
         if failed_jobs:
+            try:
+                settings = BridgeSettings.from_env()
+            except BridgeConfigError:
+                settings = None
             visible_messages=[]
             for message in messages:
                 visible_messages.append(message)
                 job_id=re.sub(r'-user$','',message['id'])
                 failed=failed_jobs.get(job_id) if message.get('role')=='user' else None
                 if failed:
-                    retry_count=failed.get('retry_count',0)
-                    try: retry_count=int(retry_count or 0)
-                    except (TypeError,ValueError): retry_count=0
-                    retryable=retry_count < CHAT_RETRY_LIMIT and not failed.get('action_attempted') and not failed.get('receipts')
                     message['failed']=True
-                    message['retryable']=retryable
+                    message['retryable']=settings is not None and can_retry_chat(failed, chat_selection(failed, settings))
                     if failed.get('error') == CHAT_ACTION_REJECTED:
                         text = 'I couldn\'t safely apply that change, so your saved coffees and shots were left unchanged. Please send it again to retry.'
                     elif failed.get('error') == PLAN_SYNC_MESSAGE:
@@ -622,7 +639,9 @@ async def chat(data:Chat,request:Request):
     if not data.message.strip():raise HTTPException(422,'Enter a message')
     if await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}}):raise HTTPException(409,'A chat reply is already running.')
     settings=BridgeSettings.from_env()
-    job={'account_id':account_id,'id':data.id,'message':data.message,'intent':data.intent,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[],'retry_count':0,'action_attempted':False,'model':data.model or settings.model,'reasoning_effort':data.reasoning_effort or settings.reasoning_effort}
+    overrides=data.model_dump(include={'model','reasoning_effort'}, exclude_none=True)
+    job={'account_id':account_id,'id':data.id,'message':data.message,'intent':data.intent,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[],'retry_count':0,'action_attempted':False,'bridge_overrides':overrides}
+    job.update(chat_selection(job, settings))
     await db.jobs.insert_one(job)
     await db.messages.insert_one({'account_id':account_id,'id':data.id+'-user','coffee_id':data.coffee_id,'role':'user','text':data.message})
     task=asyncio.create_task(run_chat(job));tasks.add(task);task.add_done_callback(tasks.discard)
@@ -939,10 +958,8 @@ async def retry_chat(key:str,request:Request):
     if not job: raise HTTPException(404,'Chat job not found')
     if job.get('status') in {'queued','running','complete'}:
         return clean(job)
-    retry_count=job.get('retry_count',0)
-    try: retry_count=int(retry_count or 0)
-    except (TypeError,ValueError): retry_count=0
-    if job.get('status') != 'failed' or retry_count >= CHAT_RETRY_LIMIT or job.get('action_attempted') or job.get('receipts'):
+    selection=chat_selection(job, BridgeSettings.from_env())
+    if job.get('status') != 'failed' or not can_retry_chat(job, selection):
         raise HTTPException(409,'This reply cannot be retried safely. Please send it again.')
     if await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']},'id':{'$ne':key}}):
         raise HTTPException(409,'A chat reply is already running.')
@@ -951,8 +968,8 @@ async def retry_chat(key:str,request:Request):
     if await db.messages.find_one({'account_id':account_id,'id':key+'-assistant'}):
         raise HTTPException(409,'This chat reply already exists.')
     updated=await db.jobs.find_one_and_update(
-        {'account_id':account_id,'id':key,'status':'failed'},
-        {'$set':{'status':'queued','action_attempted':False},'$unset':{'error':'','error_code':'','error_detail':'','response_provider':'','finish_reason':'','provider_status':'','failed_at':''},'$inc':{'retry_count':1}},
+        {'account_id':account_id,'id':key,'status':'failed','failed_at':job.get('failed_at')},
+        {'$set':{'status':'queued','action_attempted':False,'retry_count':chat_retry_count(job, selection)+1,**selection},'$unset':{'error':'','error_code':'','error_detail':'','response_provider':'','finish_reason':'','provider_status':'','failed_at':''}},
         return_document=True,
     )
     if not updated: raise HTTPException(409,'This reply is already being retried.')

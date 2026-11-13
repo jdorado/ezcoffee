@@ -256,7 +256,10 @@ never receives the bridge key. The VM API joins the existing private
 Authenticated `/chat` callers may optionally send `model` and
 `reasoning_effort`. The bridge's `/v1/models`
 endpoint owns the supported model/effort catalogue and rejects unsupported
-combinations. Retries preserve the original selection.
+combinations. Retries preserve explicit selections and use the current defaults
+for settings the caller omitted. If the effective model or effort changes, the
+new selection gets its own retry limit. Older chat jobs use the current defaults
+on retry because they only stored the effective settings.
 See [profiles/hosted.env.example](profiles/hosted.env.example) for placeholders
 and [PUBLICATION_SCOPE.md](PUBLICATION_SCOPE.md) for release boundaries.
 
