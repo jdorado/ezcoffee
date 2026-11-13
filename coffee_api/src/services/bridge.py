@@ -91,7 +91,7 @@ class BridgeSettings:
             raise BridgeConfigError("BRIDGE_BASE_URL is required when hosted chat is enabled.")
         return cls(
             api_key=api_key,
-            model=os.getenv("BRIDGE_MODEL", "gpt-6.1-sol").strip(),
+            model=os.getenv("BRIDGE_MODEL", "claude-sonnet-5-5").strip(),
             base_url=base_url,
             reasoning_effort=os.getenv("BRIDGE_REASONING_EFFORT", "medium").strip(),
         )

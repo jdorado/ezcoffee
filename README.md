@@ -246,7 +246,7 @@ sudo install -m 600 profiles/production.env.example /etc/ezcoffee/production.env
 docker compose --env-file /etc/ezcoffee/production.env -f compose.yml up -d --build --wait
 ```
 
-Hosted chat uses the private Ezenciel CLI bridge, defaulting to `gpt-6.1-sol`
+Hosted chat uses the private Ezenciel CLI bridge, defaulting to `claude-sonnet-5-5`
 at `medium` effort with native structured output. Operators configure
 `BRIDGE_API_KEY`, `BRIDGE_BASE_URL`, `BRIDGE_MODEL`, and
 `BRIDGE_REASONING_EFFORT` in the protected API runtime environment. The browser
@@ -254,7 +254,7 @@ never receives the bridge key. The VM API joins the existing private
 `stocks-bridge-net`; the public self-host profile requires no bridge.
 
 Authenticated `/chat` callers may optionally send `model` and
-`reasoning_effort`, including `claude-sonnet-5-5`. The bridge's `/v1/models`
+`reasoning_effort`. The bridge's `/v1/models`
 endpoint owns the supported model/effort catalogue and rejects unsupported
 combinations. Retries preserve the original selection.
 See [profiles/hosted.env.example](profiles/hosted.env.example) for placeholders
