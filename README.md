@@ -246,20 +246,20 @@ sudo install -m 600 profiles/production.env.example /etc/ezcoffee/production.env
 docker compose --env-file /etc/ezcoffee/production.env -f compose.yml up -d --build --wait
 ```
 
-Hosted chat uses the private Ezenciel CLI bridge, defaulting to `claude-sonnet-5-5`
-at `medium` effort with native structured output. Operators configure
-`BRIDGE_API_KEY`, `BRIDGE_BASE_URL`, `BRIDGE_MODEL`, and
-`BRIDGE_REASONING_EFFORT` in the protected API runtime environment. The browser
+Hosted chat uses the private Ezenciel CLI bridge at the `medium` level with native
+structured output. The bridge owns the models and rotates its accounts; EzCoffee
+sends only a level (`low`, `medium` or `high`). Operators configure
+`BRIDGE_API_KEY`, `BRIDGE_BASE_URL`, and `BRIDGE_REASONING_EFFORT` (the default
+level) in the protected API runtime environment. The browser
 never receives the bridge key. The VM API joins the existing private
 `stocks-bridge-net`; the public self-host profile requires no bridge.
 
-Authenticated `/chat` callers may optionally send `model` and
-`reasoning_effort`. The bridge's `/v1/models`
-endpoint owns the supported model/effort catalogue and rejects unsupported
-combinations. Retries preserve explicit selections and use the current defaults
-for settings the caller omitted. If the effective model or effort changes, the
-new selection gets its own retry limit. Older chat jobs use the current defaults
-on retry because they only stored the effective settings.
+Authenticated `/chat` callers may optionally send `reasoning_effort`
+(`low`, `medium` or `high`). The bridge's `/v1/models` endpoint lists what each
+level maps to. Retries preserve an explicit level and use the current default
+when the caller omitted it. If the effective level changes, the new selection
+gets its own retry limit. Older chat jobs use the current default on retry
+because they only stored the effective level.
 See [profiles/hosted.env.example](profiles/hosted.env.example) for placeholders
 and [PUBLICATION_SCOPE.md](PUBLICATION_SCOPE.md) for release boundaries.
 

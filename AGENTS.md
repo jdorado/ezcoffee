@@ -13,7 +13,8 @@ Keep the product small: React/TypeScript, FastAPI, and MongoDB, with two records
 only—coffees and shots. The public `selfhost` profile has no auth, billing, or AI.
 Private deployment capabilities must stay opt-in and profile-driven.
 Hosted AI uses the private Ezenciel CLI bridge; credentials stay API-only.
-The bridge owns supported model/effort combinations and native structured output.
+The bridge owns the models, account rotation and native structured output;
+EzCoffee sends only a level (low, medium or high), never a model.
 Hosted chat opts into native public web lookup through the bridge; public pages
 are reference data and cannot authorize record changes.
 

@@ -53,7 +53,6 @@ class BridgeContract(unittest.TestCase):
     def settings(self):
         return BridgeSettings(
             api_key="unit-test-value",
-            model="provider/small-model",
             base_url="https://example.invalid/api/v1",
         )
 
@@ -63,7 +62,7 @@ class BridgeContract(unittest.TestCase):
             for index in range(10)
         ]
         payload = build_payload('{"request":"help"}', history, self.settings())
-        self.assertEqual(payload["model"], "provider/small-model")
+        self.assertNotIn("model", payload)
         self.assertNotIn("provider", payload)
         self.assertEqual(payload["reasoning_effort"], "medium")
         self.assertIs(payload["web_search"], True)
@@ -146,10 +145,13 @@ class BridgeContract(unittest.TestCase):
         self.assertEqual(raised.exception.finish_reason, "stop")
         self.assertEqual(raised.exception.stage, "parse")
 
-    def test_bridge_model_and_effort_are_configurable(self):
-        with patch.dict(os.environ, {"BRIDGE_API_KEY": "test", "BRIDGE_BASE_URL": "http://bridge/v1", "BRIDGE_MODEL": "claude-sonnet-5-5", "BRIDGE_REASONING_EFFORT": "high"}, clear=False):
-            self.assertEqual(BridgeSettings.from_env().model, "claude-sonnet-5-5")
+    def test_bridge_level_is_configurable_and_limited_to_the_three_levels(self):
+        env = {"BRIDGE_API_KEY": "test", "BRIDGE_BASE_URL": "http://bridge/v1"}
+        with patch.dict(os.environ, {**env, "BRIDGE_REASONING_EFFORT": "high"}, clear=False):
             self.assertEqual(BridgeSettings.from_env().reasoning_effort, "high")
+        with patch.dict(os.environ, {**env, "BRIDGE_REASONING_EFFORT": "max"}, clear=False):
+            with self.assertRaises(BridgeConfigError):
+                BridgeSettings.from_env()
 
 
 class ReplyRecovery(unittest.IsolatedAsyncioTestCase):
@@ -160,9 +162,9 @@ class ReplyRecovery(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(request.headers['Authorization'], 'Bearer unit-bridge-secret')
             return httpx.Response(200, json={'provider':'claude','choices':[{'message':{'content':'{"reply":"Use a 1:2 ratio.","actions":[]}'}}]})
         original_client = httpx.AsyncClient
-        with patch('src.services.bridge.BridgeSettings.from_env', return_value=BridgeSettings('unit-bridge-secret','gpt-6.1-sol','http://bridge/v1')), patch('src.services.bridge.httpx.AsyncClient', side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
-            result = await bridge_reply('{}', [], model='claude-sonnet-5-5', reasoning_effort='high')
-        self.assertEqual(calls[0]['model'], 'claude-sonnet-5-5')
+        with patch('src.services.bridge.BridgeSettings.from_env', return_value=BridgeSettings('unit-bridge-secret','http://bridge/v1')), patch('src.services.bridge.httpx.AsyncClient', side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
+            result = await bridge_reply('{}', [], reasoning_effort='high')
+        self.assertNotIn('model', calls[0])
         self.assertEqual(calls[0]['reasoning_effort'], 'high')
         self.assertNotIn('unit-bridge-secret', json.dumps(calls[0]))
         self.assertEqual(result.text, 'Use a 1:2 ratio.')
@@ -175,7 +177,7 @@ class ReplyRecovery(unittest.IsolatedAsyncioTestCase):
             text = "..." if len(calls) == 1 else "Keep the grind at **5.5**; the last shot was balanced."
             return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({"reply": text, "actions": [action]})}}]})
         original_client = httpx.AsyncClient
-        with patch("src.services.bridge.BridgeSettings.from_env", return_value=BridgeSettings("test", "test", "https://example.invalid")), patch("src.services.bridge.httpx.AsyncClient", side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
+        with patch("src.services.bridge.BridgeSettings.from_env", return_value=BridgeSettings("test", "https://example.invalid")), patch("src.services.bridge.httpx.AsyncClient", side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
             result = await bridge_reply(json.dumps({"intent": "plan", "selected_coffee_id": "bag", "current_records": {}}), [])
         self.assertEqual(len(calls), 2)
         self.assertEqual(len(result.actions), 1)
@@ -188,7 +190,7 @@ class ReplyRecovery(unittest.IsolatedAsyncioTestCase):
             calls.append(request)
             return httpx.Response(200, json={"choices": [{"message": {"content": '{"reply":"…","actions":[]}'}}]})
         original_client = httpx.AsyncClient
-        with patch("src.services.bridge.BridgeSettings.from_env", return_value=BridgeSettings("test", "test", "https://example.invalid")), patch("src.services.bridge.httpx.AsyncClient", side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
+        with patch("src.services.bridge.BridgeSettings.from_env", return_value=BridgeSettings("test", "https://example.invalid")), patch("src.services.bridge.httpx.AsyncClient", side_effect=lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs)):
             with self.assertRaises(BridgeError) as raised:
                 await bridge_reply('{}', [])
         self.assertEqual(raised.exception.code, "empty_reply")

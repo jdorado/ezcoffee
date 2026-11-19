@@ -361,16 +361,14 @@ class CoffeeContract(unittest.TestCase):
   async def complete(job):
    await src.main.db.jobs.update_one({'account_id':job['account_id'],'id':job['id']},{'$set':{'status':'complete'}})
   with patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id='bridge-selection-owner'))),patch('src.main.OWNER_SUB','bridge-selection-owner'):
-   with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','gpt-6.1-sol','http://bridge/v1')),patch('src.main.run_chat',complete):
+   with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','http://bridge/v1')),patch('src.main.run_chat',complete):
     response=self.http.post('/chat',json={'id':'bridge-default-selection','message':'Hello'})
     self.assertEqual(response.status_code,200)
-    self.assertEqual(response.json()['model'],'gpt-6.1-sol')
     self.assertEqual(response.json()['reasoning_effort'],'medium')
     self.http.portal.call(complete,{'account_id':'bridge-selection-owner','id':'bridge-default-selection'})
    # The accepted choice survives later server-default changes and idempotent reads.
-   with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','claude-sonnet-5-5','http://bridge/v1','high')):
+   with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','http://bridge/v1','high')):
     saved=self.http.get('/chat/bridge-default-selection').json()
-    self.assertEqual(saved['model'],'gpt-6.1-sol')
     self.assertEqual(saved['reasoning_effort'],'medium')
  def test_seed_preserves_plans_and_chronological_dates(self):
   state=self.http.get('/state').json()
@@ -708,20 +706,20 @@ class CoffeeContract(unittest.TestCase):
   database.jobs.update_one({'account_id':'test-owner','id':job_id},{'$set':{'status':'failed','retry_count':CHAT_RETRY_LIMIT,'error':'Coffee chat is temporarily unavailable. Please try again.'}})
   limited=self.http.post('/chat/'+job_id+'/retry')
   self.assertEqual(limited.status_code,409)
-  # A legacy job exhausted its retries on the old default. The same message
-  # can now be retried with the new model without duplicating the user turn.
-  database.jobs.update_one({'account_id':'test-owner','id':job_id},{'$set':{'model':'gpt-6.1-sol','reasoning_effort':'medium'}})
-  with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','claude-sonnet-5-5','http://bridge/v1')),patch('src.main.run_chat',new=AsyncMock()) as run:
+  # A job exhausted its retries on the old default level. The same message
+  # can be retried at the new level without duplicating the user turn.
+  database.jobs.update_one({'account_id':'test-owner','id':job_id},{'$set':{'reasoning_effort':'medium'}})
+  with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','http://bridge/v1','high')),patch('src.main.run_chat',new=AsyncMock()) as run:
    state=self.http.portal.call(state_for,'test-owner')
    self.assertTrue(next(row for row in state['messages'] if row['id']==job_id+'-user')['retryable'])
    response=self.http.post('/chat/'+job_id+'/retry')
    self.http.portal.call(asyncio.sleep,0)
    self.assertEqual(response.status_code,200)
    self.assertEqual(response.json()['retry_count'],1)
-   self.assertEqual(run.await_args.args[0]['model'],'claude-sonnet-5-5')
+   self.assertEqual(run.await_args.args[0]['reasoning_effort'],'high')
    self.assertEqual(database.messages.count_documents({'account_id':'test-owner','id':job_id+'-user'}),1)
-  database.jobs.update_one({'account_id':'test-owner','id':job_id},{'$set':{'status':'failed','model':'gpt-6.1-sol','bridge_overrides':{'model':'gpt-6.1-sol'},'retry_count':CHAT_RETRY_LIMIT}})
-  with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','claude-sonnet-5-5','http://bridge/v1')):
+  database.jobs.update_one({'account_id':'test-owner','id':job_id},{'$set':{'status':'failed','reasoning_effort':'low','bridge_overrides':{'reasoning_effort':'low'},'retry_count':CHAT_RETRY_LIMIT}})
+  with patch('src.main.BridgeSettings.from_env',return_value=BridgeSettings('test','http://bridge/v1','high')):
    self.assertEqual(self.http.post('/chat/'+job_id+'/retry').status_code,409)
   database.messages.delete_many({'account_id':'test-owner','id':{'$in':[job_id+'-user',job_id+'-assistant']}})
   database.jobs.delete_one({'account_id':'test-owner','id':job_id})
@@ -939,7 +937,7 @@ class CoffeeContract(unittest.TestCase):
      response=self.http.post('/chat',json=request)
     self.assertEqual(response.status_code,200,response.text)
     original_client=httpx.AsyncClient
-    with patch('src.services.bridge.BridgeSettings.from_env',return_value=BridgeSettings('test','test','https://example.invalid')),patch('src.services.bridge.httpx.AsyncClient',side_effect=lambda **kwargs:original_client(transport=httpx.MockTransport(respond),**kwargs)):
+    with patch('src.services.bridge.BridgeSettings.from_env',return_value=BridgeSettings('test','https://example.invalid')),patch('src.services.bridge.httpx.AsyncClient',side_effect=lambda **kwargs:original_client(transport=httpx.MockTransport(respond),**kwargs)):
      self.http.portal.call(run_chat,database.jobs.find_one({'id':job_id}))
     completed=self.http.get('/chat/'+job_id).json()
     self.assertEqual(completed['status'],'complete',completed)

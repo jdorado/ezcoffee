@@ -38,7 +38,7 @@ CHAT_RETRY_LIMIT = 3
 
 def chat_selection(job, settings):
     overrides = job.get('bridge_overrides', {})
-    return {key: overrides.get(key) or getattr(settings, key) for key in ('model', 'reasoning_effort')}
+    return {key: overrides.get(key) or getattr(settings, key) for key in ('reasoning_effort',)}
 
 def chat_retry_count(job, selection):
     if any(job.get(key) and job[key] != value for key, value in selection.items()):
@@ -617,8 +617,7 @@ class Chat(BaseModel):
     coffee_id:str|None=None
     shot_date:str=''
     intent:Literal['chat','plan']='chat'
-    model:str|None=Field(default=None,min_length=1,max_length=100)
-    reasoning_effort:Literal['low','medium','high','xhigh','max','ultra']|None=None
+    reasoning_effort:Literal['low','medium','high']|None=None
 
     @model_validator(mode='after')
     def valid_shot_date(self):
@@ -639,7 +638,7 @@ async def chat(data:Chat,request:Request):
     if not data.message.strip():raise HTTPException(422,'Enter a message')
     if await db.jobs.find_one({'account_id':account_id,'status':{'$in':['queued','running']}}):raise HTTPException(409,'A chat reply is already running.')
     settings=BridgeSettings.from_env()
-    overrides=data.model_dump(include={'model','reasoning_effort'}, exclude_none=True)
+    overrides=data.model_dump(include={'reasoning_effort'}, exclude_none=True)
     job={'account_id':account_id,'id':data.id,'message':data.message,'intent':data.intent,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[],'retry_count':0,'action_attempted':False,'bridge_overrides':overrides}
     job.update(chat_selection(job, settings))
     await db.jobs.insert_one(job)
@@ -799,7 +798,7 @@ async def run_chat(job):
         await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'running','phase':'reviewing'}})
         prompt=await chat_prompt(job)
         history=await coaching_history(job)
-        options={key:job[key] for key in ('model','reasoning_effort') if job.get(key)}
+        options={key:job[key] for key in ('reasoning_effort',) if job.get(key)}
         result=await bridge_reply(prompt,history,**options)
         saved_plan=None
         if result.actions:

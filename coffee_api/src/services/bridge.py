@@ -77,9 +77,8 @@ ASSISTANT_RESPONSE_SCHEMA = {
 @dataclass(frozen=True)
 class BridgeSettings:
     api_key: str
-    model: str
     base_url: str
-    reasoning_effort: str = "medium"
+    reasoning_effort: str = "medium"  # level: the bridge owns the model
 
     @classmethod
     def from_env(cls) -> "BridgeSettings":
@@ -89,12 +88,10 @@ class BridgeSettings:
         base_url = os.getenv("BRIDGE_BASE_URL", "").strip().rstrip("/")
         if not base_url:
             raise BridgeConfigError("BRIDGE_BASE_URL is required when hosted chat is enabled.")
-        return cls(
-            api_key=api_key,
-            model=os.getenv("BRIDGE_MODEL", "claude-sonnet-5-5").strip(),
-            base_url=base_url,
-            reasoning_effort=os.getenv("BRIDGE_REASONING_EFFORT", "medium").strip(),
-        )
+        level = os.getenv("BRIDGE_REASONING_EFFORT", "medium").strip()
+        if level not in {"low", "medium", "high"}:
+            raise BridgeConfigError("BRIDGE_REASONING_EFFORT must be low, medium or high.")
+        return cls(api_key=api_key, base_url=base_url, reasoning_effort=level)
 
 
 def build_messages(prompt: str, history: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -114,7 +111,6 @@ def build_messages(prompt: str, history: list[dict[str, str]]) -> list[dict[str,
 
 def build_payload(prompt: str, history: list[dict[str, str]], settings: BridgeSettings) -> dict[str, Any]:
     return {
-        "model": settings.model,
         "messages": build_messages(prompt, history),
         "reasoning_effort": settings.reasoning_effort,
         "web_search": True,
@@ -228,10 +224,9 @@ def validate_plan_sync(prompt: str, result: BridgeReply) -> None:
 
 
 async def bridge_reply(prompt: str, history: list[dict[str, str]], *,
-                       model: str | None = None, reasoning_effort: str | None = None) -> BridgeReply:
+                       reasoning_effort: str | None = None) -> BridgeReply:
     settings = BridgeSettings.from_env()
-    settings = replace(settings, model=model or settings.model,
-                       reasoning_effort=reasoning_effort or settings.reasoning_effort)
+    settings = replace(settings, reasoning_effort=reasoning_effort or settings.reasoning_effort)
     headers = {
         "Authorization": f"Bearer {settings.api_key}",
         "Content-Type": "application/json",
