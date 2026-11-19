@@ -42,6 +42,11 @@ class BridgeContract(unittest.TestCase):
         self.assertIn('Never invent a bean detail', SYSTEM_PROMPT)
         self.assertIn('similar roast age, process, and roast level', SYSTEM_PROMPT)
 
+    def test_coach_teaches_the_why(self):
+        self.assertIn('teach the reasoning', SYSTEM_PROMPT)
+        self.assertIn('depend on the coffee', SYSTEM_PROMPT)
+        self.assertIn('never cut the why', SYSTEM_PROMPT)
+
     def test_cross_coffee_questions_use_the_bounded_overview(self):
         self.assertIn('current_records.coffee_overview', SYSTEM_PROMPT)
         self.assertIn('current_records.coffee_catalog', SYSTEM_PROMPT)

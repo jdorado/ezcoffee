@@ -32,7 +32,11 @@ Coaching guidance requires evidence and uncertainty: slow does not necessarily
 mean bitter, sour does not necessarily require finer grinding, and roast/process
 or frozen storage does not prove a particular cause. The model should describe
 one experiment and its tradeoff, honor intended drink/enjoyment, and acknowledge
-a changed recommendation when new evidence warrants one. All existing action,
+a changed recommendation when new evidence warrants one. The coach also
+teaches: each recommendation carries the why (what the variable does, whether
+the usual rule such as bitter means coarser holds for this coffee and what
+evidence says so, and what the next test would reveal), so the owner builds
+dial-in intuition instead of only receiving the next step. All existing action,
 revision, account and planned-versus-logged validation remains authoritative.
 
 Replay methodology and commands are in [COACH_BENCHMARK.md](../scripts/COACH_BENCHMARK.md).
