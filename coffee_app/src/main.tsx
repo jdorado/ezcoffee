@@ -2,7 +2,7 @@ import {Fragment,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react'
 import type {PointerEvent as ReactPointerEvent} from 'react'
 import {api,blankShot,today} from './api'
 import {copyCoffeeContext} from './copyContext'
-import type {BrewProfile,Bean,Coffee,Shot,Message,TrackedField} from './api'
+import type {BrewProfile,Bean,ChatIntent,Coffee,Shot,Message,RecipeOptions,RecipeVariant,TrackedField} from './api'
 import ChatComposer from './components/chat/ChatComposer'
 import ThinkingCounter from './components/chat/ThinkingCounter'
 import {marked} from 'marked'
@@ -14,6 +14,7 @@ import BagRows,{type BagRowsHandle} from './components/BagRows'
 import LoadingLogbook from './components/LoadingLogbook'
 import ShotMetrics from './components/ShotMetrics'
 import ShotRating from './components/ShotRating'
+import RecipeComparison,{paperVariants} from './components/RecipeComparison'
 import StarRating from './components/StarRating'
 import {inlineShotPatch,plannedEditorFields,loggedEditorFields,plannedStopAt} from './shotEditing'
 import type {InlineShotEdit,ShotMetric,EditableShotField} from './shotEditing'
@@ -79,7 +80,6 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  const [brewProfile,setBrewProfile]=useState<BrewProfile>(snapshot?.profile||fallbackProfile)
  const [chatEnabled,setChatEnabled]=useState(snapshot?.capabilities?.chat??profile.chatEnabled)
  const [nextGuidance,setNextGuidance]=useState('')
- const [nextPaper,setNextPaper]=useState(profile.defaults.paper==='yes'?'yes':'no')
  const [selected,setSelected]=useState(()=>snapshot?initialCoffeeSelection(snapshot.coffees,lastCoffee()):lastCoffee()),[tab,setTab]=useState('shots'),[chatOpen,setChatOpen]=useState(false),[draft,setDraft]=useState<Shot|null>(null)
  const beanMessages=useMemo(()=>coffeeMessages(messages,coffees,selected),[messages,coffees,selected])
  // Closed chat never delays opening the logbook with Markdown work.
@@ -89,8 +89,11 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  const bagRows=useRef<BagRowsHandle>(null)
  const [coffeeDraft,setCoffeeDraft]=useState<Partial<Coffee>|null>(null),[newBagSource,setNewBagSource]=useState<string|null>(null),[input,setInput]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(!snapshot),[saving,setSaving]=useState(false)
  const [job,setJob]=useState<string|null>(null),[sending,setSending]=useState(false),[retrying,setRetrying]=useState<string|null>(null)
+ const sendingRef=useRef(false),choosingRecipeRef=useRef(false)
  const [jobCoffeeId,setJobCoffeeId]=useState<string|null>(null)
- const [jobProgress,setJobProgress]=useState('Reviewing shots'),[planNotice,setPlanNotice]=useState<{coffeeId:string;text:string}|null>(null)
+ const [jobProgress,setJobProgress]=useState('Reviewing shots'),[planNotice,setPlanNotice]=useState<{coffeeId:string;text:string;viewReply?:boolean}|null>(null)
+ const [recipeProposals,setRecipeProposals]=useState<Record<string,{jobId:string;options:RecipeOptions}|undefined>>({})
+ const [choosingRecipe,setChoosingRecipe]=useState(false)
  const [copyingContext,setCopyingContext]=useState(false),[copyNotice,setCopyNotice]=useState('')
  const copyingContextRef=useRef(false)
  const [locking,setLocking]=useState<Set<string>>(()=>new Set())
@@ -145,13 +148,45 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
    window.removeEventListener('pageshow',settled);window.removeEventListener('resize',soon);window.removeEventListener('focusin',settled);window.removeEventListener('focusout',settled);window.removeEventListener('orientationchange',orient)
   }
  },[])
- useEffect(()=>{if(!job)return;let stopped=false;const poll=async()=>{try{const result=await api('/chat/'+encodeURIComponent(job));if(stopped)return;setJobProgress(result.phase==='saving'?'Saving plan':'Reviewing shots');if(['complete','failed'].includes(result.status)){const state=await refresh();if(stopped)return;if(result.intent==='plan'){const saved=result.saved_plan,confirmed=saved&&state.shots.some((s:Shot)=>s.id===saved.id&&s.revision>=saved.revision&&s.status==='planned'&&s.coffee_id===result.coffee_id);setPlanNotice({coffeeId:result.coffee_id,text:result.status==='failed'?'Plan could not be generated. Open chat to retry.':confirmed?'Plan updated':'Could not confirm the saved plan. Open chat for details.'})}setJob(null);if(result.status==='failed')setError(result.error||'Chat failed');}}catch(e){if(!stopped)setError((e as Error).message)}};poll();const timer=setInterval(poll,1500);return()=>{stopped=true;clearInterval(timer)}},[job])
+ useEffect(()=>{
+  if(!job)return
+  let stopped=false,timer:number|undefined
+  const poll=async()=>{
+   try{
+    const result=await api('/chat/'+encodeURIComponent(job))
+    if(stopped)return
+    setJobProgress(result.phase==='saving'?'Saving plan':'Reviewing shots')
+    if(result.status==='complete'||result.status==='failed'){
+     const state=await refresh()
+     if(stopped)return
+     if(result.intent==='plan_variants'){
+      if(result.status==='complete'&&result.recipe_options){
+       setRecipeProposals(current=>({...current,[result.coffee_id]:{jobId:job,options:result.recipe_options}}))
+       setPlanNotice(null)
+      }else setPlanNotice({coffeeId:result.coffee_id,text:'Could not generate both recipes. Try again.',viewReply:true})
+     }else if(result.intent==='plan'){
+      const saved=result.saved_plan,confirmed=saved&&state.shots.some((s:Shot)=>s.id===saved.id&&s.revision>=saved.revision&&s.status==='planned'&&s.coffee_id===result.coffee_id)
+      setPlanNotice({coffeeId:result.coffee_id,text:result.status==='failed'?'Plan could not be generated. Open chat to retry.':confirmed?'Plan updated':'Could not confirm the saved plan. Open chat for details.',viewReply:true})
+     }
+     setJob(null)
+     if(result.status==='failed'&&result.intent!=='plan_variants')setError(result.error||'Chat failed')
+     return
+    }
+   }catch(e){if(!stopped)setError((e as Error).message)}
+   if(!stopped)timer=window.setTimeout(poll,1500)
+  }
+  poll()
+  return()=>{stopped=true;window.clearTimeout(timer)}
+ },[job])
  const byRating=(a:Coffee,b:Coffee)=>Number(coffeeScore(shots,b,coffees).score)-Number(coffeeScore(shots,a,coffees).score)
  const activeCoffees=coffeePickerRows(coffees).sort(byRating), archivedCoffees=coffeePickerRows(coffees,true).sort(byRating), coffee=coffees.find(c=>c.id===selected), effectivePaperFilter=tracked('paper')?paperFilter:'all'
  const effectiveResultFilter=brewProfile.brew_method==='filter'&&resultFilter==='choked'?'all':resultFilter
  const hasFilters=effectivePaperFilter!=='all'||effectiveResultFilter!=='all', quickOnly=(effectiveResultFilter==='locked'||effectiveResultFilter==='good'||effectiveResultFilter==='top')&&effectivePaperFilter==='all', menuFiltered=hasFilters&&!quickOnly
  const historyIds=coffeeHistoryIds(coffees,selected),loggedHistory=shots.filter(s=>historyIds.has(s.coffee_id)&&s.status==='logged')
- const visible=filterShots(shots,historyIds,effectivePaperFilter,effectiveResultFilter),nextPlan=newestFirst(shots.filter(s=>s.coffee_id===selected&&s.status==='planned'))[0]
+ const visible=filterShots(shots,historyIds,effectivePaperFilter,effectiveResultFilter)
+ const nextPlan=newestFirst(shots.filter(s=>s.coffee_id===selected&&s.status==='planned')).sort((a,b)=>(b.updated_at||'').localeCompare(a.updated_at||''))[0]
+ const recipeProposal=chatEnabled&&tracked('paper')?recipeProposals[selected]:undefined
+ const planningBusy=!!(job||sending||retrying||choosingRecipe)
 
  const score=coffee?coffeeScore(shots,coffee,coffees):{score:null,count:0}
  function changeInlineEdit(edit:InlineShotEdit|null){setInlineEdit(edit);setInlineError('')}
@@ -173,11 +208,46 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  async function saveProfile(){setSaving(true);setError('');try{const saved=await api('/profile','PUT',brewProfile);setBrewProfile(saved)}catch(e){setError((e as Error).message)}finally{setSaving(false)}}
  async function setCoffeeArchived(row:Coffee,archived:boolean){setSaving(true);setError('');try{const saved=await api('/coffees/'+row.id,'PUT',{...row,archived});setCoffeeDraft(null);await refresh();if(!archived)setSelected(saved.id)}catch(e){setError((e as Error).message)}finally{setSaving(false)}}
  async function toggleLocked(shot:Shot){if(!shot.id||locking.has(shot.id))return;setLocking(current=>new Set(current).add(shot.id!));setError('');try{const saved=await api('/shots/'+shot.id,'PUT',{coffee_id:shot.coffee_id,revision:shot.revision,locked:!shot.locked});setShots(rows=>rows.map(row=>row.id===saved.id?saved:row))}catch(e){setError((e as Error).message)}finally{setLocking(current=>{const next=new Set(current);next.delete(shot.id!);return next})}}
-  async function postChat(text:string,coffeeId:string|null,intent:'chat'|'plan'='chat'){const id=crypto.randomUUID();setSending(true);setError('');setMessages(current=>[...current,{id:id+'-user',coffee_id:coffeeId,role:'user',text}]);try{const result=await api('/chat','POST',{id,message:text,coffee_id:coffeeId,shot_date:today(),intent});setJobProgress('Reviewing shots');setJob(result.id);setJobCoffeeId(result.coffee_id??coffeeId);try{await refresh()}catch(e){setError((e as Error).message)}return true}catch(e){setMessages(current=>current.filter(m=>m.id!==id+'-user'));setError((e as Error).message);return false}finally{setSending(false)}}
+  async function postChat(text:string,coffeeId:string|null,intent:ChatIntent='chat'){
+   if(sendingRef.current)return false
+   const id=crypto.randomUUID()
+   sendingRef.current=true;setSending(true);setError('')
+   setMessages(current=>[...current,{id:id+'-user',coffee_id:coffeeId,role:'user',text,intent}])
+   try{
+    const result=await api('/chat','POST',{id,message:text,coffee_id:coffeeId,shot_date:today(),intent})
+    setJobProgress('Reviewing shots');setJob(result.id);setJobCoffeeId(result.coffee_id??coffeeId)
+    try{await refresh()}catch(e){setError((e as Error).message)}
+    return true
+   }catch(e){
+    setMessages(current=>current.filter(m=>m.id!==id+'-user'));setError((e as Error).message)
+    return false
+   }finally{sendingRef.current=false;setSending(false)}
+  }
   async function send(){const text=input.trim();if(!text||job||sending||retrying)return;setInput('');if(!await postChat(text,selected||null))setInput(text)}
   async function retryMessage(message:Message){if(!message.retryable||job||sending||retrying)return;const jobId=message.id.replace(/-assistant-failed$/,'').replace(/-user$/,'');if(!jobId)return;setRetrying(jobId);setError('');try{const result=await api('/chat/'+encodeURIComponent(jobId)+'/retry','POST');setJob(result.id);setJobCoffeeId(result.coffee_id??message.coffee_id??null);await refresh()}catch(e){setError((e as Error).message)}finally{setRetrying(null)}}
-  async function resendMessage(message:Message){const text=message.text.trim();if(!text||job||sending||retrying)return;await postChat(text,message.coffee_id||null)}
-  async function triageNextShot(){if(!selected||job||sending||retrying)return;setPlanNotice(null);const guidance=nextGuidance.trim();const paper=tracked('paper')?` Use ${nextPaper==='yes'?'paper':'no paper'}.`:'';await postChat(`Plan my next ${brewWord} for this coffee and save it as the planned shot.${guidance?` ${guidance}`:''}${paper}`,selected,'plan')}
+  async function resendMessage(message:Message){const text=message.text.trim();if(!text||job||sending||retrying)return;await postChat(text,message.coffee_id||null,message.intent)}
+  async function triageNextShot(){
+   if(!selected||planningBusy||sendingRef.current||choosingRecipeRef.current)return
+   setPlanNotice(null)
+   const guidance=nextGuidance.trim(),compare=tracked('paper')
+   const request=compare
+    ? `Suggest my next ${brewWord} for this coffee with and without a paper filter.`
+    : `Plan my next ${brewWord} for this coffee and save it as the planned shot.`
+   await postChat(request+(guidance?' '+guidance:''),selected,compare?'plan_variants':'plan')
+  }
+  async function chooseRecipe(variant:RecipeVariant){
+   if(!recipeProposal||planningBusy||choosingRecipeRef.current||sendingRef.current)return
+   choosingRecipeRef.current=true;setChoosingRecipe(true);setPlanNotice(null);setError('')
+   try{
+    const saved:Shot=await api('/chat/'+encodeURIComponent(recipeProposal.jobId)+'/plan','POST',{variant})
+    setShots(rows=>rows.some(row=>row.id===saved.id)
+     ? rows.map(row=>row.id===saved.id&&row.revision<=saved.revision?saved:row)
+     : [...rows,saved])
+    setRecipeProposals(current=>({...current,[selected]:undefined}))
+    setPlanNotice({coffeeId:selected,text:'Plan saved.'})
+   }catch(e){setPlanNotice({coffeeId:selected,text:(e as Error).message})}
+   finally{choosingRecipeRef.current=false;setChoosingRecipe(false)}
+  }
  function clearSuggested(...keys:string[]){setSuggested(current=>{if(!keys.some(key=>current.has(key)))return current;const next=new Set(current);keys.forEach(key=>next.delete(key));return next})}
  function repeat(s:Shot){grindEdited.current=false;setSuggested(new Set());setDraft({...blankShot(selected),dose:s.dose,grind:s.grind,paper:s.paper,temp:s.temp,water_temp_c:s.water_temp_c??null,water_g:s.water_g??null,ice_g:s.ice_g??null,bloom_seconds:s.bloom_seconds??null,basket:s.basket,puck_screen:s.puck_screen,target_yield_g:s.target_yield_g??null,target_yield_max_g:s.target_yield_max_g??null,date:today()})}
  function planExtras(plan:Shot){const extras:Partial<Shot>={};if(tracked('stop_yield_g')){const stop=plan.stop_yield_g??plan.target_yield_g;if(stop!=null)extras.stop_yield_g=stop}if(tracked('pressure')&&plan.pressure)extras.pressure=plan.pressure;return extras}
@@ -219,7 +289,7 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
   {tab==='profile'?<ProfileView value={brewProfile} onChange={setBrewProfile} onSave={saveProfile} onLogout={onLogout} saving={saving}/>:tab==='shots'?<main className="shots-view">
    <div className="heading">
     <div><div className="eyebrow">{isFilter?'FILTER COFFEE LOGBOOK':'ESPRESSO LOGBOOK'}</div><h1>{isFilter?'Brews':'Shots'}</h1></div>
-     <div className="shot-heading-actions"><button className="primary" disabled={!coffee||coffee.archived} onClick={newShot}><Icon name="plus"/>Log {brewWord}</button></div>
+     <div className="shot-heading-actions"><button className="primary" disabled={!coffee||coffee.archived||choosingRecipe} onClick={newShot}><Icon name="plus"/>Log {brewWord}</button></div>
    </div>
    <section className="coffee-panel" aria-label="Selected coffee">
     <div className="coffee-selection">
@@ -246,10 +316,20 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
     {!coffee&&<button className="add-coffee" aria-label="Add coffee" title="Add coffee" onClick={()=>setCoffeeDraft({name:'',roast_date:'',notes:'',revision:0})}><Icon name="plus"/><span>Add coffee</span></button>}
    </section>
    {(chatEnabled||nextPlan)&&<section className={'next-plan-card'+((sending||job)?' loading':'')} aria-label={`Planned next ${brewWord}`}>
-    <div className="next-plan-head"><div><span className="eyebrow">NEXT {brewWord.toUpperCase()}</span><h2>{nextPlan?'Ready to brew':'Choose the next move'}</h2></div><div className="next-plan-actions">{nextPlan&&<button type="button" className="next-plan-generate" disabled={!!inlineEdit||inlineSaving||!!(job||sending||retrying)} onClick={()=>openPlan(nextPlan)}>Edit plan <Icon name="edit"/></button>}{chatEnabled&&<button className="next-plan-generate" disabled={!!inlineEdit||inlineSaving||!!(job||sending||retrying)||!coffee||loggedHistory.length===0} onClick={triageNextShot}>{sending?'Starting…':job?jobProgress+'…':nextPlan?'Regenerate':'Generate'} <Icon name="arrow"/></button>}</div></div>
-    {nextPlan?<div className="next-plan-body">{renderShotMetrics(nextPlan,cardMetrics(nextPlan),'next-plan-metrics')}</div>:<p>{loggedHistory.length>0?'Chat picks one focused change from your recent shots and best recipes.':`Log a ${brewWord} first, then plan the next one.`}</p>}
-    {chatEnabled&&planNotice?.coffeeId===selected&&<p className="plan-notice" role="status">{planNotice.text} <button type="button" className="text-button" onClick={()=>setChatOpen(true)}>View reply <Icon name="arrow"/></button></p>}
-    {chatEnabled&&<div className="next-plan-controls">{tracked('paper')&&<fieldset className="next-paper-picker"><legend>Paper for this shot</legend>{[['yes','Paper'],['no','No paper']].map(([value,label])=><button type="button" key={value} aria-pressed={nextPaper===value} onClick={()=>setNextPaper(value)}>{label}</button>)}</fieldset>}<input aria-label={`Guidance for the next ${brewWord}`} maxLength={500} value={nextGuidance} placeholder="Optional: today it tasted thin; make it sweeter…" onChange={e=>setNextGuidance(e.target.value)}/></div>}
+    <div className="next-plan-head">
+     <div><span className="eyebrow">NEXT {brewWord.toUpperCase()}</span><h2>{nextPlan?'Ready to brew':'Choose the next move'}</h2></div>
+     <div className="next-plan-actions">
+      {nextPlan&&<button type="button" className="next-plan-generate" disabled={!!inlineEdit||inlineSaving||planningBusy} onClick={()=>openPlan(nextPlan)}>Edit plan <Icon name="edit"/></button>}
+      {chatEnabled&&<button type="button" className="next-plan-generate" disabled={!!inlineEdit||inlineSaving||planningBusy||!coffee||coffee.archived||loggedHistory.length===0} onClick={triageNextShot}>{sending?'Starting…':job?jobProgress+'…':nextPlan||recipeProposal?'Regenerate':'Generate'} <Icon name="arrow"/></button>}
+     </div>
+    </div>
+    {nextPlan?<div className="next-plan-body">
+     {tracked('paper')&&(nextPlan.paper==='yes'||nextPlan.paper==='no')&&<span className="plan-paper">{paperVariants[nextPlan.paper==='yes'?'with_paper':'without_paper']}</span>}
+     {renderShotMetrics(nextPlan,cardMetrics(nextPlan),'next-plan-metrics')}
+    </div>:!recipeProposal&&<p>{loggedHistory.length===0?`Log a ${brewWord} first, then plan the next one.`:tracked('paper')?'Compare recipes with and without a paper filter.':'Chat picks one focused change from your recent shots and best recipes.'}</p>}
+    {recipeProposal&&<div className="recipe-options"><RecipeComparison options={recipeProposal.options} disabled={planningBusy||!!inlineEdit||inlineSaving||!!coffee?.archived} onChoose={chooseRecipe}/></div>}
+    {chatEnabled&&planNotice?.coffeeId===selected&&<p className="plan-notice" role="status">{planNotice.text}{planNotice.viewReply&&<button type="button" className="text-button" onClick={()=>setChatOpen(true)}>View reply <Icon name="arrow"/></button>}</p>}
+    {chatEnabled&&<div className="next-plan-controls"><input aria-label={`Guidance for the next ${brewWord}`} maxLength={500} value={nextGuidance} placeholder="Optional: today it tasted thin; make it sweeter…" onChange={e=>setNextGuidance(e.target.value)}/></div>}
    </section>}
    <div className="logbook-toolbar">
     <span className="filter-count" role="status">{visible.length} {brewWord}{visible.length===1?'':'s'}{effectiveResultFilter==='top'?' · highest rated first':''}</span>
