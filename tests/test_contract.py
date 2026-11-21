@@ -890,7 +890,7 @@ class CoffeeContract(unittest.TestCase):
    state=self.http.get('/state').json()
    self.assertEqual(state['messages'],[])
    self.assertIsNone(state['active_job'])
-   self.assertEqual(state['capabilities'],{'chat':False,'auth':False,'app_mode':'personal'})
+   self.assertEqual(state['capabilities'],{'chat':False,'plan_variants':False,'auth':False,'app_mode':'personal'})
    self.assertEqual(self.http.post('/chat',json={'id':'disabled','message':'test'}).status_code,404)
  def test_delete_revision_and_coffee_history(self):
   coffee=self.http.post('/coffees',json={'name':'Deletion test'}).json()
@@ -1038,6 +1038,54 @@ class CoffeeContract(unittest.TestCase):
    self.assertEqual(self.http.post('/chat/same-pair/plan',json={'variant':'with_paper'}).status_code,409)
    saved=database.shots.find_one({'id':row['id']})
    self.assertEqual((saved['grind'],saved['paper'],saved['source']),('9.5','unknown','legacy'))
+
+ def test_concurrent_first_recipe_choices_share_one_plan(self):
+  import httpx
+  from pymongo import MongoClient
+  from unittest.mock import patch
+  from src.main import write_shot
+  self._use_recipe_test_owner('concurrent-recipe-owner')
+  coffee=self.http.post('/coffees',json={'name':'Concurrent selection fixture'}).json()
+  recipe={'dose':18,'grind':'5','temp':'','target_yield_g':36,'target_yield_max_g':None,
+          'water_temp_c':None,'water_g':None,'ice_g':None,'bloom_seconds':None,
+          'pressure':'','basket':'','puck_screen':'unknown','reason':'Keep the established settings.'}
+  pair={'with_paper':recipe,'without_paper':recipe}
+  with MongoClient(os.environ['MONGO_URL']) as mongo:
+   database=mongo[os.environ['MONGO_DB']]
+   jobs=[self._run_recipe_comparison(database,coffee['id'],f'concurrent-{index}',pair)[0] for index in range(2)]
+   self.assertEqual([job['status'] for job in jobs],['complete','complete'])
+   self.assertEqual(jobs[0]['plan_create_id'],jobs[1]['plan_create_id'])
+
+   async def choose_together():
+    ready=asyncio.Event()
+    waiting=0
+    async def write_together(*args):
+     nonlocal waiting
+     waiting+=1
+     if waiting==2: ready.set()
+     await asyncio.wait_for(ready.wait(),timeout=5)
+     return await write_shot(*args)
+    with patch('src.main.write_shot',new=write_together):
+     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test',
+                                 headers={'Authorization':'Bearer test'}) as api:
+      return await asyncio.gather(*(
+       api.post(f"/chat/{job['id']}/plan",json={'variant':variant})
+       for job,variant in zip(jobs,pair)
+      ))
+
+   responses=self.http.portal.call(choose_together)
+   self.assertEqual(sorted(result.status_code for result in responses),[200,409])
+   saved=next(result.json() for result in responses if result.status_code==200)
+   self.assertEqual(database.shots.count_documents({'coffee_id':coffee['id'],'status':'planned'}),1)
+   self.assertEqual(self.http.put('/shots/'+saved['id'],json={
+    'coffee_id':coffee['id'],'revision':saved['revision'],'status':'logged',
+   }).status_code,200)
+   # An old choice still targets the occupied id after the plan is logged.
+   self.assertEqual(self.http.post('/chat/concurrent-0/plan',json={'variant':'with_paper'}).status_code,409)
+   next_job,_=self._run_recipe_comparison(database,coffee['id'],'concurrent-next',pair)
+   self.assertNotEqual(next_job['plan_create_id'],saved['id'])
+   next_choice=self.http.post('/chat/concurrent-next/plan',json={'variant':'with_paper'})
+   self.assertEqual(next_choice.status_code,200,next_choice.text)
 
  def _use_recipe_test_owner(self,owner):
   from types import SimpleNamespace

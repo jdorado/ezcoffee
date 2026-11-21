@@ -395,7 +395,7 @@ async def state_for(account_id):
                         **({'reason':reason} if reason else {})
                     })
             messages=visible_messages
-    return {'beans':beans, 'coffees':coffees, 'shots':shots, 'profile':profile, 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
+    return {'beans':beans, 'coffees':coffees, 'shots':shots, 'profile':profile, 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'plan_variants':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
 
 @app.get('/state')
 async def state(request:Request):
@@ -634,6 +634,17 @@ async def find_planned_shot(account_id, coffee_id):
         'account_id':account_id,'coffee_id':coffee_id,'status':'planned','deleted_at':{'$exists':False},
     }, sort=[('updated_at',-1),('_id',-1)])
 
+async def next_generated_plan_id(account_id, coffee_id):
+    # Comparisons made while there is no active plan share a single first-write
+    # id. After that plan is logged or deleted, the next comparison gets a new id.
+    prefix='recipe-plan-'
+    previous=await db.shots.find_one(
+        {'account_id':account_id,'coffee_id':coffee_id,'id':{'$regex':'^'+prefix}},
+        {'id':1},sort=[('created_at',-1),('_id',-1)],
+    )
+    predecessor=previous['id'] if previous else ''
+    return prefix+str(uuid.uuid5(uuid.NAMESPACE_URL,json.dumps([coffee_id,predecessor])))
+
 async def chat_prompt(job):
     account_id=job['account_id']
     _,coffees=await coffee_inventory(account_id)
@@ -802,10 +813,13 @@ async def run_chat(job):
     try:
         account_id=job['account_id']
         await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'running','phase':'reviewing'}})
+        variant_job=job.get('intent')=='plan_variants'
+        # Capture the first-write id before reading the current plan, so a
+        # selection racing with generation cannot assign a fresh id to a stale job.
+        plan_create_id=await next_generated_plan_id(account_id,job['coffee_id']) if variant_job else None
         prompt=await chat_prompt(job)
         history=await coaching_history(job)
         options={key:job[key] for key in ('reasoning_effort',) if job.get(key)}
-        variant_job=job.get('intent')=='plan_variants'
         if variant_job:
             records=json.loads(prompt)['current_records']
             if not records['selected_coffee']:
@@ -819,7 +833,8 @@ async def run_chat(job):
                 raise BridgeError('Expected recipe options without actions.', code='invalid_structured_output')
             base=records['planned_next_shot']
             completed={'recipe_options':result.recipes.model_dump(),
-                       'plan_base':{'id':base['id'],'revision':base['revision']} if base else None}
+                       'plan_base':{'id':base['id'],'revision':base['revision']} if base else None,
+                       'plan_create_id':plan_create_id if not base else None}
         if result.actions:
             # A write may succeed before its receipt is recorded. Mark the
             # job before applying the action so retries never duplicate a
@@ -1016,7 +1031,7 @@ async def choose_plan(key:str,data:PlanChoice,request:Request):
 
     coffee_id=job['coffee_id']
     base=job['plan_base']
-    plan_id=base['id'] if base else str(uuid.uuid5(uuid.NAMESPACE_URL,'ezcoffee:plan:'+key))
+    plan_id=base['id'] if base else job['plan_create_id']
     revision=base['revision'] if base else 0
     variant=getattr(RecipeVariants.model_validate(job['recipe_options']),data.variant)
     settings={**variant.model_dump(exclude={'reason'}),
@@ -1033,8 +1048,8 @@ async def choose_plan(key:str,data:PlanChoice,request:Request):
     current_version=(current['id'],current['revision']) if current else None
     if current_version!=((plan_id,revision) if base else None): raise conflict
 
-    # The shot revision guards edits and the deterministic id guards retries
-    # of a first-time choice. Both use the canonical shot write path.
+    # The revision guards edits and the shared id guards concurrent first-time
+    # choices. Both use the canonical shot write path.
     try:
         date={} if base else {'date':job['shot_date']}
         plan=Shot(coffee_id=coffee_id,revision=revision,status='planned',**date,**settings)

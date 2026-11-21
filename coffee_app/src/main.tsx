@@ -79,6 +79,7 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  const [coffees,setCoffees]=useState<Coffee[]>(snapshot?.coffees||[]),[shots,setShots]=useState<Shot[]>(snapshot?.shots||[]),[messages,setMessages]=useState<Message[]>(snapshot?.messages||[])
  const [brewProfile,setBrewProfile]=useState<BrewProfile>(snapshot?.profile||fallbackProfile)
  const [chatEnabled,setChatEnabled]=useState(snapshot?.capabilities?.chat??profile.chatEnabled)
+ const [recipeOptionsEnabled,setRecipeOptionsEnabled]=useState(false)
  const [nextGuidance,setNextGuidance]=useState('')
  const [selected,setSelected]=useState(()=>snapshot?initialCoffeeSelection(snapshot.coffees,lastCoffee()):lastCoffee()),[tab,setTab]=useState('shots'),[chatOpen,setChatOpen]=useState(false),[draft,setDraft]=useState<Shot|null>(null)
  const beanMessages=useMemo(()=>coffeeMessages(messages,coffees,selected),[messages,coffees,selected])
@@ -90,6 +91,7 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  const [coffeeDraft,setCoffeeDraft]=useState<Partial<Coffee>|null>(null),[newBagSource,setNewBagSource]=useState<string|null>(null),[input,setInput]=useState(''),[error,setError]=useState(''),[loading,setLoading]=useState(!snapshot),[saving,setSaving]=useState(false)
  const [job,setJob]=useState<string|null>(null),[sending,setSending]=useState(false),[retrying,setRetrying]=useState<string|null>(null)
  const sendingRef=useRef(false),choosingRecipeRef=useRef(false)
+ const generatingRef=useRef(false)
  const [jobCoffeeId,setJobCoffeeId]=useState<string|null>(null)
  const [jobProgress,setJobProgress]=useState('Reviewing shots'),[planNotice,setPlanNotice]=useState<{coffeeId:string;text:string;viewReply?:boolean}|null>(null)
  const [recipeProposals,setRecipeProposals]=useState<Record<string,{jobId:string;options:RecipeOptions}|undefined>>({})
@@ -100,7 +102,7 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  const [chatMaximized,setChatMaximized]=useState(false),[chatHeight,setChatHeight]=useState<number|null>(null)
  const messagesView=useRef<HTMLDivElement>(null),dialog=useRef<HTMLDialogElement>(null),coffeePicker=useRef<HTMLDetailsElement>(null)
  const chatSheetRef=useRef<HTMLElement>(null),chatDrag=useRef<{startY:number;startHeight:number;shellHeight:number;pointerId:number}|null>(null)
- async function refresh(){const state=await api('/state');if(snapshotOwner)setTimeout(()=>writeSnapshot(snapshotOwner,buildTime,state),0);setBeans(state.beans||[]);setCoffees(state.coffees);setShots(rows=>{const known=new Map(rows.map(row=>[row.id,row]));return state.shots.map((row:Shot)=>{const current=known.get(row.id);return current&&current.revision>row.revision?current:row})});setMessages(state.messages);setBrewProfile(state.profile||fallbackProfile);setChatEnabled(state.capabilities?.chat??profile.chatEnabled);setSelected(prev=>initialCoffeeSelection(state.coffees,prev));if(state.active_job){setJob(state.active_job.id);setJobCoffeeId(state.active_job.coffee_id??null);setJobProgress(state.active_job.phase==='saving'?'Saving plan':'Reviewing shots')}setLoading(false);return state}
+ async function refresh(){const state=await api('/state');if(snapshotOwner)setTimeout(()=>writeSnapshot(snapshotOwner,buildTime,state),0);setBeans(state.beans||[]);setCoffees(state.coffees);setShots(rows=>{const known=new Map(rows.map(row=>[row.id,row]));return state.shots.map((row:Shot)=>{const current=known.get(row.id);return current&&current.revision>row.revision?current:row})});setMessages(state.messages);setBrewProfile(state.profile||fallbackProfile);setChatEnabled(state.capabilities?.chat??profile.chatEnabled);setRecipeOptionsEnabled(state.capabilities?.plan_variants===true);setSelected(prev=>initialCoffeeSelection(state.coffees,prev));if(state.active_job){setJob(state.active_job.id);setJobCoffeeId(state.active_job.coffee_id??null);setJobProgress(state.active_job.phase==='saving'?'Saving plan':'Reviewing shots')}setLoading(false);return state}
  useEffect(()=>{if(!loading)try{localStorage.setItem('coffee.selected',selected)}catch{}},[selected,loading])
  async function copyContext(coffeeId:string){if(copyingContextRef.current)return;copyingContextRef.current=true;setCopyingContext(true);setCopyNotice('');setError('');try{await copyCoffeeContext(coffeeId);setCopyNotice('Context copied. Paste it into another LLM.')}catch(e){setError('Could not copy context. '+(e as Error).message)}finally{copyingContextRef.current=false;setCopyingContext(false)}}
  useEffect(()=>{setCopyNotice('')},[selected])
@@ -227,13 +229,26 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
   async function retryMessage(message:Message){if(!message.retryable||job||sending||retrying)return;const jobId=message.id.replace(/-assistant-failed$/,'').replace(/-user$/,'');if(!jobId)return;setRetrying(jobId);setError('');try{const result=await api('/chat/'+encodeURIComponent(jobId)+'/retry','POST');setJob(result.id);setJobCoffeeId(result.coffee_id??message.coffee_id??null);await refresh()}catch(e){setError((e as Error).message)}finally{setRetrying(null)}}
   async function resendMessage(message:Message){const text=message.text.trim();if(!text||job||sending||retrying)return;await postChat(text,message.coffee_id||null,message.intent)}
   async function triageNextShot(){
-   if(!selected||planningBusy||sendingRef.current||choosingRecipeRef.current)return
-   setPlanNotice(null)
-   const guidance=nextGuidance.trim(),compare=tracked('paper')
-   const request=compare
-    ? `Suggest my next ${brewWord} for this coffee with and without a paper filter.`
-    : `Plan my next ${brewWord} for this coffee and save it as the planned shot.`
-   await postChat(request+(guidance?' '+guidance:''),selected,compare?'plan_variants':'plan')
+   if(!selected||planningBusy||sendingRef.current||choosingRecipeRef.current||generatingRef.current)return
+   generatingRef.current=true
+   try{
+    setPlanNotice(null)
+    const guidance=nextGuidance.trim(),compare=tracked('paper')
+    // The new frontend can arrive before the API during a deployment.
+    if(compare&&!recipeOptionsEnabled){
+     const state=await refresh()
+     if(state.active_job)return
+     if(!state.capabilities?.plan_variants){
+      setPlanNotice({coffeeId:selected,text:'Recipe comparison is temporarily unavailable. Try again shortly.'})
+      return
+     }
+    }
+    const request=compare
+     ? `Suggest my next ${brewWord} for this coffee with and without a paper filter.`
+     : `Plan my next ${brewWord} for this coffee and save it as the planned shot.`
+    await postChat(request+(guidance?' '+guidance:''),selected,compare?'plan_variants':'plan')
+   }catch(e){setPlanNotice({coffeeId:selected,text:(e as Error).message})}
+   finally{generatingRef.current=false}
   }
   async function chooseRecipe(variant:RecipeVariant){
    if(!recipeProposal||planningBusy||choosingRecipeRef.current||sendingRef.current)return
