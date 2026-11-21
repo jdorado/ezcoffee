@@ -966,7 +966,14 @@ class CoffeeContract(unittest.TestCase):
   recipe={'dose':18,'grind':'5.5','temp':'I','target_yield_g':36,'target_yield_max_g':38,
           'water_temp_c':94,'water_g':None,'ice_g':None,'bloom_seconds':None,
           'pressure':'','basket':'','puck_screen':'unknown','reason':'A finer grind adds resistance.'}
-  pair={'with_paper':recipe,'without_paper':{**recipe,'grind':'6','reason':'The coarser grind reduces resistance.'}}
+  # A live bridge reply explained a valid recipe in just over 500 characters.
+  reason=("The previous no-paper shot was slightly bitter and took longer than the balanced paper shot. "
+          "Try a slightly coarser grind and keep the dose and target yield fixed so the change is easy to evaluate. "
+          "A coarser grind can reduce resistance and shorten contact time, which may soften the bitterness. "
+          "This is a starting point based on one comparison. The next taste will show whether the new setting improves "
+          "balance without making the cup thin. Repeat it if you enjoy it before adjusting temperature or yield.")
+  self.assertGreater(len(reason),500)
+  pair={'with_paper':recipe,'without_paper':{**recipe,'grind':'6','reason':reason}}
   with MongoClient(os.environ['MONGO_URL']) as mongo:
    database=mongo[os.environ['MONGO_DB']]
    with patch('src.services.bridge.BridgeSettings.from_env',return_value=BridgeSettings('test','https://example.invalid')):
