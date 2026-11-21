@@ -216,6 +216,8 @@ nav button:disabled { opacity: .42; background: transparent; }
 .next-plan-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .next-plan-card .metric-edit-button { border-bottom-color: rgba(255,255,255,.45); }
 .next-plan-card .inline-metric-editor select option { color: var(--ink); background: var(--paper); }
+.plan-metric-editor input.plan-metric-slider { display: block; height: 28px; margin: 4px 0 0; padding: 0; border: 0; accent-color: var(--yellow); cursor: ew-resize; }
+.plan-save-status { display: block; margin: 10px 0 0; font-size: 12px; color: #d6d8cd; }
 .shot-body .edit-indicator { opacity: .7; transform: none; align-self: flex-start; min-width: 32px; min-height: 40px; padding: 8px; }
 .stop-yield { display: block; margin-top: 3px; font-family: var(--font-mono); font-size: 9px; color: var(--muted); }
 .drip-through { font-family: var(--font-mono); font-size: 9px; color: var(--muted); }

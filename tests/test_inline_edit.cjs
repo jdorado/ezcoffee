@@ -4,7 +4,12 @@ const ts = require('../coffee_app/node_modules/typescript')
 const source = fs.readFileSync(require('node:path').join(__dirname,'../coffee_app/src/shotEditing.ts'),'utf8')
 const moduleRef = {exports:{}}
 new Function('module','exports',ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(moduleRef,moduleRef.exports)
-const {inlineShotPatch,plannedEditorFields,loggedEditorFields,plannedStopAt} = moduleRef.exports
+const {inlineShotPatch,plannedEditorFields,loggedEditorFields,plannedStopAt,planSlider} = moduleRef.exports
+assert.deepEqual(planSlider('dose','18'),{min:13,max:23,step:.1,value:18})
+assert.deepEqual(planSlider('target_yield_g',''),{min:21,max:51,step:.5,value:36})
+assert.equal(planSlider('water_temp_c','98').max,100)
+assert.equal(planSlider('grind','Two turns + 1 click'),null)
+assert.equal(planSlider('temp','I'),null)
 const shot={id:'plan',coffee_id:'bag',revision:4,status:'planned',dose:18,grind:'5.0',target_yield_g:36,target_yield_max_g:40,yield_g:null,rating:null}
 const edit=(field,value)=>({shot,field,value})
 assert.deepEqual(inlineShotPatch(edit('grind','4.9')),{coffee_id:'bag',revision:4,grind:'4.9'})

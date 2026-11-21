@@ -13,6 +13,8 @@ import './style.css'
 import BagRows,{type BagRowsHandle} from './components/BagRows'
 import LoadingLogbook from './components/LoadingLogbook'
 import ShotMetrics from './components/ShotMetrics'
+import PlanMetrics from './components/PlanMetrics'
+import {usePlanAutosave} from './usePlanAutosave'
 import ShotRating from './components/ShotRating'
 import RecipeComparison,{paperVariants} from './components/RecipeComparison'
 import StarRating from './components/StarRating'
@@ -80,6 +82,7 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  const [brewProfile,setBrewProfile]=useState<BrewProfile>(snapshot?.profile||fallbackProfile)
  const [chatEnabled,setChatEnabled]=useState(snapshot?.capabilities?.chat??profile.chatEnabled)
  const [recipeOptionsEnabled,setRecipeOptionsEnabled]=useState(false)
+ const [planEditingReady,setPlanEditingReady]=useState(false)
  const [nextGuidance,setNextGuidance]=useState('')
  const [selected,setSelected]=useState(()=>snapshot?initialCoffeeSelection(snapshot.coffees,lastCoffee()):lastCoffee()),[tab,setTab]=useState('shots'),[chatOpen,setChatOpen]=useState(false),[draft,setDraft]=useState<Shot|null>(null)
  const beanMessages=useMemo(()=>coffeeMessages(messages,coffees,selected),[messages,coffees,selected])
@@ -102,7 +105,12 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  const [chatMaximized,setChatMaximized]=useState(false),[chatHeight,setChatHeight]=useState<number|null>(null)
  const messagesView=useRef<HTMLDivElement>(null),dialog=useRef<HTMLDialogElement>(null),coffeePicker=useRef<HTMLDetailsElement>(null)
  const chatSheetRef=useRef<HTMLElement>(null),chatDrag=useRef<{startY:number;startHeight:number;shellHeight:number;pointerId:number}|null>(null)
- async function refresh(){const state=await api('/state');if(snapshotOwner)setTimeout(()=>writeSnapshot(snapshotOwner,buildTime,state),0);setBeans(state.beans||[]);setCoffees(state.coffees);setShots(rows=>{const known=new Map(rows.map(row=>[row.id,row]));return state.shots.map((row:Shot)=>{const current=known.get(row.id);return current&&current.revision>row.revision?current:row})});setMessages(state.messages);setBrewProfile(state.profile||fallbackProfile);setChatEnabled(state.capabilities?.chat??profile.chatEnabled);setRecipeOptionsEnabled(state.capabilities?.plan_variants===true);setSelected(prev=>initialCoffeeSelection(state.coffees,prev));if(state.active_job){setJob(state.active_job.id);setJobCoffeeId(state.active_job.coffee_id??null);setJobProgress(state.active_job.phase==='saving'?'Saving plan':'Reviewing shots')}setLoading(false);return state}
+ const planAutosave=usePlanAutosave(
+  (id,patch)=>api('/shots/'+encodeURIComponent(id),'PUT',patch),
+  saved=>setShots(rows=>rows.map(row=>row.id===saved.id&&row.revision<=saved.revision?saved:row)),
+  refresh,
+ )
+ async function refresh(){const state=await api('/state');if(snapshotOwner)setTimeout(()=>writeSnapshot(snapshotOwner,buildTime,state),0);setBeans(state.beans||[]);setCoffees(state.coffees);setShots(rows=>{const known=new Map(rows.map(row=>[row.id,row]));return state.shots.map((row:Shot)=>{const current=known.get(row.id);return current&&current.revision>row.revision?current:row})});setMessages(state.messages);setBrewProfile(state.profile||fallbackProfile);setChatEnabled(state.capabilities?.chat??profile.chatEnabled);setRecipeOptionsEnabled(state.capabilities?.plan_variants===true);setPlanEditingReady(true);setSelected(prev=>initialCoffeeSelection(state.coffees,prev));if(state.active_job){setJob(state.active_job.id);setJobCoffeeId(state.active_job.coffee_id??null);setJobProgress(state.active_job.phase==='saving'?'Saving plan':'Reviewing shots')}setLoading(false);return state}
  useEffect(()=>{if(!loading)try{localStorage.setItem('coffee.selected',selected)}catch{}},[selected,loading])
  async function copyContext(coffeeId:string){if(copyingContextRef.current)return;copyingContextRef.current=true;setCopyingContext(true);setCopyNotice('');setError('');try{await copyCoffeeContext(coffeeId);setCopyNotice('Context copied. Paste it into another LLM.')}catch(e){setError('Could not copy context. '+(e as Error).message)}finally{copyingContextRef.current=false;setCopyingContext(false)}}
  useEffect(()=>{setCopyNotice('')},[selected])
@@ -186,7 +194,10 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
  const hasFilters=effectivePaperFilter!=='all'||effectiveResultFilter!=='all', quickOnly=(effectiveResultFilter==='locked'||effectiveResultFilter==='good'||effectiveResultFilter==='top')&&effectivePaperFilter==='all', menuFiltered=hasFilters&&!quickOnly
  const historyIds=coffeeHistoryIds(coffees,selected),loggedHistory=shots.filter(s=>historyIds.has(s.coffee_id)&&s.status==='logged')
  const visible=filterShots(shots,historyIds,effectivePaperFilter,effectiveResultFilter)
- const nextPlan=newestFirst(shots.filter(s=>s.coffee_id===selected&&s.status==='planned')).sort((a,b)=>(b.updated_at||'').localeCompare(a.updated_at||''))[0]
+ const savedPlan=newestFirst(shots.filter(s=>s.coffee_id===selected&&s.status==='planned')).sort((a,b)=>(b.updated_at||'').localeCompare(a.updated_at||''))[0]
+ const planSave=savedPlan?.id?planAutosave.status[savedPlan.id]:undefined
+ const nextPlan=planSave&&savedPlan?{...savedPlan,...planSave.patch}:savedPlan
+ const planSaveBusy=!!(planSave?.saving||planSave?.recovering)
  const recipeProposal=chatEnabled&&tracked('paper')?recipeProposals[selected]:undefined
  const planningBusy=!!(job||sending||retrying||choosingRecipe)
 
@@ -229,7 +240,7 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
   async function retryMessage(message:Message){if(!message.retryable||job||sending||retrying)return;const jobId=message.id.replace(/-assistant-failed$/,'').replace(/-user$/,'');if(!jobId)return;setRetrying(jobId);setError('');try{const result=await api('/chat/'+encodeURIComponent(jobId)+'/retry','POST');setJob(result.id);setJobCoffeeId(result.coffee_id??message.coffee_id??null);await refresh()}catch(e){setError((e as Error).message)}finally{setRetrying(null)}}
   async function resendMessage(message:Message){const text=message.text.trim();if(!text||job||sending||retrying)return;await postChat(text,message.coffee_id||null,message.intent)}
   async function triageNextShot(){
-   if(!selected||planningBusy||sendingRef.current||choosingRecipeRef.current||generatingRef.current)return
+   if(!selected||planningBusy||planSaveBusy||sendingRef.current||choosingRecipeRef.current||generatingRef.current)return
    generatingRef.current=true
    try{
     setPlanNotice(null)
@@ -251,7 +262,7 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
    finally{generatingRef.current=false}
   }
   async function chooseRecipe(variant:RecipeVariant){
-   if(!recipeProposal||planningBusy||choosingRecipeRef.current||sendingRef.current)return
+   if(!recipeProposal||planningBusy||planSaveBusy||choosingRecipeRef.current||sendingRef.current)return
    choosingRecipeRef.current=true;setChoosingRecipe(true);setPlanNotice(null);setError('')
    try{
     const saved:Shot=await api('/chat/'+encodeURIComponent(recipeProposal.jobId)+'/plan','POST',{variant})
@@ -334,15 +345,19 @@ export default function App({onLogout,snapshotOwner}:{onLogout?:()=>void;snapsho
     <div className="next-plan-head">
      <div><span className="eyebrow">NEXT {brewWord.toUpperCase()}</span><h2>{nextPlan?'Ready to brew':'Choose the next move'}</h2></div>
      <div className="next-plan-actions">
-      {nextPlan&&<button type="button" className="next-plan-generate" disabled={!!inlineEdit||inlineSaving||planningBusy} onClick={()=>openPlan(nextPlan)}>Edit plan <Icon name="edit"/></button>}
-      {chatEnabled&&<button type="button" className="next-plan-generate" disabled={!!inlineEdit||inlineSaving||planningBusy||!coffee||coffee.archived||loggedHistory.length===0} onClick={triageNextShot}>{sending?'Starting…':job?jobProgress+'…':nextPlan||recipeProposal?'Regenerate':'Generate'} <Icon name="arrow"/></button>}
+      {nextPlan&&<button type="button" className="next-plan-generate" disabled={!planEditingReady||!!inlineEdit||inlineSaving||planningBusy||planSaveBusy} onClick={()=>openPlan(nextPlan)}>Edit plan <Icon name="edit"/></button>}
+      {chatEnabled&&<button type="button" className="next-plan-generate" disabled={!!inlineEdit||inlineSaving||planningBusy||planSaveBusy||!coffee||coffee.archived||loggedHistory.length===0} onClick={triageNextShot}>{sending?'Starting…':job?jobProgress+'…':nextPlan||recipeProposal?'Regenerate':'Generate'} <Icon name="arrow"/></button>}
      </div>
     </div>
     {nextPlan?<div className="next-plan-body">
      {tracked('paper')&&(nextPlan.paper==='yes'||nextPlan.paper==='no')&&<span className="plan-paper">{paperVariants[nextPlan.paper==='yes'?'with_paper':'without_paper']}</span>}
-     {renderShotMetrics(nextPlan,cardMetrics(nextPlan),'next-plan-metrics')}
+     <PlanMetrics key={nextPlan.id+':'+!!planSave?.recovering} shot={nextPlan} metrics={cardMetrics(nextPlan)}
+      disabled={!planEditingReady||planningBusy||!!planSave?.recovering||!!(draft||coffeeDraft)}
+      onChange={patch=>planAutosave.change(savedPlan,patch)}/>
+     {planSave?.saving&&<span className="plan-save-status" role="status">Saving plan…</span>}
+     {planSave?.error&&<p className="plan-save-status" role="alert">{planSave.error}</p>}
     </div>:!recipeProposal&&<p>{loggedHistory.length===0?`Log a ${brewWord} first, then plan the next one.`:tracked('paper')?'Compare recipes with and without a paper filter.':'Chat picks one focused change from your recent shots and best recipes.'}</p>}
-    {recipeProposal&&<div className="recipe-options"><RecipeComparison options={recipeProposal.options} disabled={planningBusy||!!inlineEdit||inlineSaving||!!coffee?.archived} onChoose={chooseRecipe}/></div>}
+    {recipeProposal&&<div className="recipe-options"><RecipeComparison options={recipeProposal.options} disabled={planningBusy||planSaveBusy||!!inlineEdit||inlineSaving||!!coffee?.archived} onChoose={chooseRecipe}/></div>}
     {chatEnabled&&planNotice?.coffeeId===selected&&<p className="plan-notice" role="status">{planNotice.text}{planNotice.viewReply&&<button type="button" className="text-button" onClick={()=>setChatOpen(true)}>View reply <Icon name="arrow"/></button>}</p>}
     {chatEnabled&&<div className="next-plan-controls"><input aria-label={`Guidance for the next ${brewWord}`} maxLength={500} value={nextGuidance} placeholder="Optional: today it tasted thin; make it sweeter…" onChange={e=>setNextGuidance(e.target.value)}/></div>}
    </section>}

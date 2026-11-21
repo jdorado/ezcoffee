@@ -9,6 +9,23 @@ const recipeFields=new Set(['dose','grind','water_temp_c','water_g','ice_g','blo
 
 export const plannedStopAt=(shot:Shot)=>shot.stop_yield_g??shot.target_yield_g??null
 
+// Center the slider on the existing recipe so unusual settings remain editable.
+// A grind label such as "2 turns + 1 click" still uses the exact-value input.
+const planSliderSettings={
+ dose:[18,5,.1,.1,1000],grind:[5,3,.1,0,Infinity],target_yield_g:[36,15,.5,.5,1000],
+ water_temp_c:[93,10,.5,0,100],water_g:[250,150,1,0,5000],ice_g:[100,75,1,0,5000],bloom_seconds:[30,25,1,0,600],
+} as const
+
+export function planSlider(field:EditableShotField,initial:string){
+ if(!Object.hasOwn(planSliderSettings,field))return null
+ if(initial!==''&&(!Number.isFinite(Number(initial))||(field==='grind'&&Number(initial)<0)))return null
+ const [fallback,span,step,lower,upper]=planSliderSettings[field as keyof typeof planSliderSettings]
+ const value=initial===''?fallback:Math.min(upper,Math.max(lower,Number(initial)))
+ const min=Math.max(lower,Math.floor((value-span)/step)*step)
+ const max=Math.min(upper,Math.ceil((value+span)/step)*step)
+ return {min:Number(min.toFixed(8)),max:Number(max.toFixed(8)),step,value}
+}
+
 export function plannedEditorFields(fields:TrackedField[]):TrackedField[]{
  return [...new Set(fields.map(field=>field==='yield_g'||field==='stop_yield_g'?'target_yield_g':field).filter(field=>recipeFields.has(field)))]
 }
