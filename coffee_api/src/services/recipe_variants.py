@@ -26,7 +26,7 @@ class RecipeSettings(BaseModel):
 
 class RecipeVariant(RecipeSettings):
     model_config = ConfigDict(extra='forbid', strict=True, str_strip_whitespace=True)
-    reason: str = Field(min_length=1, max_length=500)
+    reason: str = Field(min_length=1, max_length=2000)
 
     @model_validator(mode='after')
     def complete_recipe(self):
