@@ -19,6 +19,7 @@ load_dotenv(ROOT/'coffee_api/.env.local')
 from src.services.privy_auth import verify_privy_access_token, PrivyAuthError, PrivyConfigError
 from src.services.coaching_context import HISTORY_MESSAGES, COACHING_GUIDANCE, family_coffee_ids, enrich_records, owner_grind_adjustment, preferred_shot
 from src.services.bridge import BridgeConfigError, BridgeError, BridgeSettings, PlanSyncError, bridge_reply
+from src.services.recipe_variants import RecipeSettings, RecipeVariants
 APP_MODE = os.getenv('APP_MODE', 'selfhost').strip().lower()
 if APP_MODE not in {'selfhost', 'hosted', 'personal'}:
     raise RuntimeError('APP_MODE must be selfhost, hosted, or personal')
@@ -249,7 +250,7 @@ class BeanDefinition(BaseModel):
     archived:bool=False
     revision:int=0
 
-class Shot(BaseModel):
+class Shot(RecipeSettings):
     coffee_id:str
     revision:int=0
     date:str=''
@@ -259,35 +260,17 @@ class Shot(BaseModel):
     texture:Literal['','smooth','grainy','gritty']=''
     choked:bool=False
     rating:float|None=Field(default=None,ge=1,le=5,multiple_of=0.5,strict=True)
-    dose:float|None=Field(default=None,gt=0,le=1000)
-    grind:str=Field(default='',max_length=80)
     paper:Literal['yes','no','unknown']='unknown'
-    temp:Literal['','0','I','II']=''
     stop_yield_g:float|None=Field(default=None,ge=0,le=1000)
     yield_g:float|None=Field(default=None,ge=0,le=1000)
-    target_yield_g:float|None=Field(default=None,gt=0,le=1000)
-    target_yield_max_g:float|None=Field(default=None,gt=0,le=1000)
     outcome:Literal['unrated','good','adjust','bad','choked']='unrated'
     locked:bool=False
     seconds:float|None=Field(default=None,ge=0,le=600)
-    water_temp_c:float|None=Field(default=None,ge=0,le=100)
-    water_g:float|None=Field(default=None,ge=0,le=5000)
-    ice_g:float|None=Field(default=None,ge=0,le=5000)
-    bloom_seconds:float|None=Field(default=None,ge=0,le=600)
     first_drip:float|None=Field(default=None,ge=0,le=600)
-    pressure:str=Field(default='',max_length=120)
-    basket:str=Field(default='',max_length=120)
-    puck_screen:Literal['yes','no','unknown']='unknown'
     status:Literal['logged','planned']='logged'
     reference:bool=False
     taste:str=Field(default='',max_length=10000)
     source:str=Field(default='',max_length=10000)
-
-    @model_validator(mode='after')
-    def target_range(self):
-        if self.target_yield_max_g is not None and (self.target_yield_g is None or self.target_yield_max_g < self.target_yield_g):
-            raise ValueError('Target upper bound must be at least the target grams.')
-        return self
 
 TrackedField=Literal['water_temp_c','water_g','ice_g','dose','ratio','grind','seconds','bloom_seconds','yield_g','stop_yield_g','target_yield_g','first_drip','paper','temp','pressure','basket','puck_screen','taste_balance','rating','taste']
 ESPRESSO_FIELDS=['dose','grind','yield_g','seconds','ratio','paper','water_temp_c','pressure','taste_balance','rating','taste']
@@ -412,7 +395,7 @@ async def state_for(account_id):
                         **({'reason':reason} if reason else {})
                     })
             messages=visible_messages
-    return {'beans':beans, 'coffees':coffees, 'shots':shots, 'profile':profile, 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
+    return {'beans':beans, 'coffees':coffees, 'shots':shots, 'profile':profile, 'messages':messages,'active_job':active_job,'capabilities':{'chat':AI_ENABLED,'plan_variants':AI_ENABLED,'auth':REQUIRE_AUTH,'app_mode':APP_MODE}}
 
 @app.get('/state')
 async def state(request:Request):
@@ -616,14 +599,14 @@ class Chat(BaseModel):
     message:str=Field(min_length=1,max_length=4000)
     coffee_id:str|None=None
     shot_date:str=''
-    intent:Literal['chat','plan']='chat'
+    intent:Literal['chat','plan','plan_variants']='chat'
     reasoning_effort:Literal['low','medium','high']|None=None
 
     @model_validator(mode='after')
     def valid_shot_date(self):
-        if self.coffee_id and re.fullmatch(r'(?:re)?generate(?:\s+(?:(?:my|the)\s+)?(?:next\s+)?(?:shot|brew|recipe|plan))?[.!]?',self.message.strip(),re.IGNORECASE):
+        if self.intent=='chat' and self.coffee_id and re.fullmatch(r'(?:re)?generate(?:\s+(?:(?:my|the)\s+)?(?:next\s+)?(?:shot|brew|recipe|plan))?[.!]?',self.message.strip(),re.IGNORECASE):
             self.intent='plan'
-        if self.intent=='plan' and not self.coffee_id: raise ValueError('Select a coffee before generating a plan.')
+        if self.intent in {'plan','plan_variants'} and not self.coffee_id: raise ValueError('Select a coffee before generating a plan.')
         if self.shot_date:
             try: datetime.fromisoformat(self.shot_date)
             except ValueError: raise ValueError('Use an ISO date for new chat shots.')
@@ -642,9 +625,25 @@ async def chat(data:Chat,request:Request):
     job={'account_id':account_id,'id':data.id,'message':data.message,'intent':data.intent,'coffee_id':data.coffee_id,'shot_date':data.shot_date or now()[:10],'status':'queued','created_at':now(),'receipts':[],'retry_count':0,'action_attempted':False,'bridge_overrides':overrides}
     job.update(chat_selection(job, settings))
     await db.jobs.insert_one(job)
-    await db.messages.insert_one({'account_id':account_id,'id':data.id+'-user','coffee_id':data.coffee_id,'role':'user','text':data.message})
+    await db.messages.insert_one({'account_id':account_id,'id':data.id+'-user','coffee_id':data.coffee_id,'role':'user','text':data.message,'intent':data.intent})
     task=asyncio.create_task(run_chat(job));tasks.add(task);task.add_done_callback(tasks.discard)
     return clean(job)
+
+async def find_planned_shot(account_id, coffee_id):
+    return await db.shots.find_one({
+        'account_id':account_id,'coffee_id':coffee_id,'status':'planned','deleted_at':{'$exists':False},
+    }, sort=[('updated_at',-1),('_id',-1)])
+
+async def next_generated_plan_id(account_id, coffee_id):
+    # Comparisons made while there is no active plan share a single first-write
+    # id. After that plan is logged or deleted, the next comparison gets a new id.
+    prefix='recipe-plan-'
+    previous=await db.shots.find_one(
+        {'account_id':account_id,'coffee_id':coffee_id,'id':{'$regex':'^'+prefix}},
+        {'id':1},sort=[('created_at',-1),('_id',-1)],
+    )
+    predecessor=previous['id'] if previous else ''
+    return prefix+str(uuid.uuid5(uuid.NAMESPACE_URL,json.dumps([coffee_id,predecessor])))
 
 async def chat_prompt(job):
     account_id=job['account_id']
@@ -662,7 +661,7 @@ async def chat_prompt(job):
     recent.sort(key=shot_sort_key)
     planned=None
     if selected:
-        row=await db.shots.find_one({'account_id':account_id,'coffee_id':selected['id'],'status':'planned','deleted_at':{'$exists':False}},sort=[('updated_at',-1),('_id',-1)])
+        row=await find_planned_shot(account_id,selected['id'])
         if row: planned=clean(row)
     profile=await read_profile(account_id)
     equipment_context={'brew_method':profile.get('brew_method'),'equipment_preset':profile.get('equipment_preset'),
@@ -774,6 +773,24 @@ async def chat_prompt(job):
     payload['current_records']['equipment_context']['grind_adjustment']=owner_grind_adjustment([*owner_constraints,{'role':'user','text':job['message']}])
     adjustment=payload['current_records']['equipment_context']['grind_adjustment']
     payload['current_records']['next_shot_candidates']=next_shot_candidates(anchor,constraints={'grind_step':(adjustment or {}).get('increment')},references=seed_references[:2],direction=direction) if anchor else {}
+    if job.get('intent')=='plan_variants':
+        # This completion only proposes recipes. Give it recent evidence for
+        # each setting even when one of them dominates the overall history.
+        records=payload['current_records']
+        family_shots=[*selected_shots,*related]
+        evidence_fields=RecipeSettings.model_fields.keys() | {
+            'id','coffee_id','date','paper','yield_g','seconds','outcome','rating','taste_balance','locked','reference','coffee_context',
+        }
+        shots_by_paper={}
+        for label,paper in [('with_paper','yes'),('without_paper','no')]:
+            matching=[shot for shot in family_shots if shot.get('paper')==paper][:4]
+            shots_by_paper[label]=[
+                {**{field:value for field,value in row.items() if field in evidence_fields},
+                 'facts':shot_facts(row),'taste':row.get('taste','')[:240]}
+                for row in matching
+            ]
+        records['shots_by_paper']=shots_by_paper
+        del payload['action_guidance'], payload['record_guidance']
     return json.dumps(payload,separators=(',',':'))
 
 async def coaching_history(job,coffees=None):
@@ -796,11 +813,28 @@ async def run_chat(job):
     try:
         account_id=job['account_id']
         await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'running','phase':'reviewing'}})
+        variant_job=job.get('intent')=='plan_variants'
+        # Capture the first-write id before reading the current plan, so a
+        # selection racing with generation cannot assign a fresh id to a stale job.
+        plan_create_id=await next_generated_plan_id(account_id,job['coffee_id']) if variant_job else None
         prompt=await chat_prompt(job)
         history=await coaching_history(job)
         options={key:job[key] for key in ('reasoning_effort',) if job.get(key)}
+        if variant_job:
+            records=json.loads(prompt)['current_records']
+            if not records['selected_coffee']:
+                raise BridgeError('Selected coffee not found.', code='coffee_not_found')
+            options['recipe_variants']=True
         result=await bridge_reply(prompt,history,**options)
         saved_plan=None
+        completed={}
+        if variant_job:
+            if result.recipes is None or result.actions:
+                raise BridgeError('Expected recipe options without actions.', code='invalid_structured_output')
+            base=records['planned_next_shot']
+            completed={'recipe_options':result.recipes.model_dump(),
+                       'plan_base':{'id':base['id'],'revision':base['revision']} if base else None,
+                       'plan_create_id':plan_create_id if not base else None}
         if result.actions:
             # A write may succeed before its receipt is recorded. Mark the
             # job before applying the action so retries never duplicate a
@@ -824,7 +858,7 @@ async def run_chat(job):
             raise PlanSyncError()
         reply=result.text
         await db.messages.update_one({'account_id':account_id,'id':job['id']+'-assistant'},{'$setOnInsert':{'account_id':account_id,'id':job['id']+'-assistant','coffee_id':job.get('coffee_id'),'role':'assistant','text':reply}},upsert=True)
-        await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'complete','phase':'ready','saved_plan':saved_plan}})
+        await db.jobs.update_one({'account_id':account_id,'id':job['id']},{'$set':{'status':'complete','phase':'ready','saved_plan':saved_plan,**completed}})
     except (BridgeConfigError, BridgeError) as exc:
         code=bridge_failure_code(exc)
         provider_status=getattr(exc,'provider_status',None)
@@ -922,7 +956,7 @@ async def apply_inference_action(job,action):
             # that: resync the coffee's existing plan, or create a new one.
             coffee_id=data.get('coffee_id') or job.get('coffee_id')
             if coffee_id: data['coffee_id']=coffee_id
-            existing=await db.shots.find_one({'account_id':account_id,'coffee_id':coffee_id,'status':'planned','deleted_at':{'$exists':False}},sort=[('updated_at',-1),('_id',-1)]) if coffee_id else None
+            existing=await find_planned_shot(account_id,coffee_id) if coffee_id else None
             if existing: key=existing['id']; data['revision']=existing.get('revision',0)
             else: key=None; data['revision']=0
         if key is not None:
@@ -981,3 +1015,47 @@ async def job_status(key:str,request:Request):
     job=await db.jobs.find_one({'account_id':request.state.account_id,'id':key})
     if not job:raise HTTPException(404,'Chat job not found')
     return clean(job)
+
+
+class PlanChoice(BaseModel):
+    variant: Literal['with_paper', 'without_paper']
+
+
+@app.post('/chat/{key}/plan')
+async def choose_plan(key:str,data:PlanChoice,request:Request):
+    if not AI_ENABLED: raise HTTPException(404,'Chat is not enabled in this profile.')
+    account_id=request.state.account_id
+    job=await db.jobs.find_one({'account_id':account_id,'id':key,'intent':'plan_variants','status':'complete'})
+    if not job or not job.get('recipe_options'):
+        raise HTTPException(404,'Recipe options not found.')
+
+    coffee_id=job['coffee_id']
+    base=job['plan_base']
+    plan_id=base['id'] if base else job['plan_create_id']
+    revision=base['revision'] if base else 0
+    variant=getattr(RecipeVariants.model_validate(job['recipe_options']),data.variant)
+    settings={**variant.model_dump(exclude={'reason'}),
+              'paper':'yes' if data.variant=='with_paper' else 'no',
+              'stop_yield_g':None}
+
+    def already_saved(row):
+        return (row and row['id']==plan_id and row['revision']==revision+1
+                and all(row.get(field)==value for field,value in settings.items()))
+
+    conflict=HTTPException(409,'The planned recipe changed. Regenerate to review fresh options.')
+    current=await find_planned_shot(account_id,coffee_id)
+    if already_saved(current): return clean(current)
+    current_version=(current['id'],current['revision']) if current else None
+    if current_version!=((plan_id,revision) if base else None): raise conflict
+
+    # The revision guards edits and the shared id guards concurrent first-time
+    # choices. Both use the canonical shot write path.
+    try:
+        date={} if base else {'date':job['shot_date']}
+        plan=Shot(coffee_id=coffee_id,revision=revision,status='planned',**date,**settings)
+        return await write_shot(plan_id,plan,account_id)
+    except (DuplicateKeyError,HTTPException) as exc:
+        if isinstance(exc,HTTPException) and exc.status_code!=409: raise
+        current=await find_planned_shot(account_id,coffee_id)
+        if already_saved(current): return clean(current)
+        raise conflict from exc

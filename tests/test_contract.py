@@ -890,7 +890,7 @@ class CoffeeContract(unittest.TestCase):
    state=self.http.get('/state').json()
    self.assertEqual(state['messages'],[])
    self.assertIsNone(state['active_job'])
-   self.assertEqual(state['capabilities'],{'chat':False,'auth':False,'app_mode':'personal'})
+   self.assertEqual(state['capabilities'],{'chat':False,'plan_variants':False,'auth':False,'app_mode':'personal'})
    self.assertEqual(self.http.post('/chat',json={'id':'disabled','message':'test'}).status_code,404)
  def test_delete_revision_and_coffee_history(self):
   coffee=self.http.post('/coffees',json={'name':'Deletion test'}).json()
@@ -953,5 +953,164 @@ class CoffeeContract(unittest.TestCase):
     self.assertEqual(plan.get('yield_g'),None)
     if generation==0: first_id=plan['id']
     else: self.assertEqual(plan['id'],first_id)
+
+ def test_recipe_options_save_only_the_chosen_variant(self):
+  import json
+  from pymongo import MongoClient
+  from unittest.mock import patch
+  from src.services.bridge import BridgeSettings
+  self._use_recipe_test_owner('paper-comparison-owner')
+  bag=self.http.post('/coffees',json={'name':'Paper comparison fixture'}).json()
+  coffee_id=bag['id']
+  logged=self.http.post('/shots',json={'coffee_id':coffee_id,'paper':'no','grind':'5','yield_g':34}).json()
+  recipe={'dose':18,'grind':'5.5','temp':'I','target_yield_g':36,'target_yield_max_g':38,
+          'water_temp_c':94,'water_g':None,'ice_g':None,'bloom_seconds':None,
+          'pressure':'','basket':'','puck_screen':'unknown','reason':'A finer grind adds resistance.'}
+  pair={'with_paper':recipe,'without_paper':{**recipe,'grind':'6','reason':'The coarser grind reduces resistance.'}}
+  with MongoClient(os.environ['MONGO_URL']) as mongo:
+   database=mongo[os.environ['MONGO_DB']]
+   with patch('src.services.bridge.BridgeSettings.from_env',return_value=BridgeSettings('test','https://example.invalid')):
+    for index,(variant,paper,grind) in enumerate([('with_paper','yes','5.5'),('without_paper','no','6')]):
+     job_id=f'paper-choices-{index}'
+     result,calls=self._run_recipe_comparison(database,coffee_id,job_id,pair)
+     self.assertEqual(result['status'],'complete',result)
+     self.assertEqual(result['recipe_options'],pair)
+     self.assertEqual(result['receipts'],[])
+     self.assertEqual(result['reasoning_effort'],'medium')
+     self.assertEqual(len(calls),1)
+     payload=calls[0]
+     self.assertNotIn('model',payload)
+     schema=payload['response_format']['json_schema']
+     self.assertTrue(schema['strict'])
+     self.assertEqual(set(schema['schema']['required']),set(pair))
+     self.assertNotIn('actions',schema['schema']['properties'])
+     variant_schema=schema['schema']['$defs']['RecipeVariant']
+     self.assertEqual(set(variant_schema['required']),set(recipe))
+     self.assertEqual(variant_schema['properties']['dose']['anyOf'],[{'type':'number'},{'type':'null'}])
+     records=json.loads(payload['messages'][-1]['content'].split('\n\n',1)[1])['current_records']
+     self.assertEqual(records['shots_by_paper']['without_paper'][0]['id'],logged['id'])
+     self.assertEqual(records['shots_by_paper']['with_paper'],[])
+     self.assertEqual(database.shots.count_documents({'coffee_id':coffee_id,'status':'planned'}),int(index>0))
+     if index:
+      self.assertEqual(database.shots.find_one({'id':previous['id']})['revision'],previous['revision'])
+     choice_url='/chat/'+job_id+'/plan'
+     choice=self.http.post(choice_url,json={'variant':variant})
+     self.assertEqual(choice.status_code,200,choice.text)
+     saved=choice.json()
+     self.assertEqual((saved['paper'],saved['grind'],saved['revision']), (paper,grind,index+1))
+     self.assertIsNone(saved['yield_g'])
+     self.assertEqual(database.shots.count_documents({'coffee_id':coffee_id,'status':'planned'}),1)
+     self.assertEqual(self.http.post(choice_url,json={'variant':variant}).json(),saved)
+     other=next(option for option in pair if option!=variant)
+     self.assertEqual(self.http.post(choice_url,json={'variant':other}).status_code,409)
+     if index: self.assertEqual(saved['id'],previous['id'])
+     previous=saved
+   self.assertEqual(database.shots.find_one({'id':logged['id']})['yield_g'],34)
+
+ def test_recipe_options_reject_invalid_output_and_stale_choice(self):
+  from pymongo import MongoClient
+  self._use_recipe_test_owner('stale-comparison-owner')
+  coffee=self.http.post('/coffees',json={'name':'Legacy planned recipe fixture'}).json()
+  row=self.http.post('/shots',json={'coffee_id':coffee['id'],'status':'planned','grind':'9','paper':'unknown','source':'legacy'}).json()
+  recipe={'dose':14,'grind':'9','temp':'','target_yield_g':28,'target_yield_max_g':None,
+          'water_temp_c':None,'water_g':None,'ice_g':None,'bloom_seconds':None,
+          'pressure':'','basket':'','puck_screen':'unknown','reason':'Recent shots support keeping this grind.'}
+  same={'with_paper':recipe,'without_paper':recipe}
+  invalid=[
+   {'with_paper':recipe},
+   {**same,'without_paper':{**recipe,'yield_g':28}},
+   {**same,'without_paper':{**recipe,'target_yield_max_g':27}},
+   {**same,'actions':[]},
+  ]
+  with MongoClient(os.environ['MONGO_URL']) as mongo:
+   database=mongo[os.environ['MONGO_DB']]
+   for index,body in enumerate(invalid):
+    failed,calls=self._run_recipe_comparison(database,coffee['id'],f'bad-pair-{index}',body)
+    self.assertEqual((failed['status'],failed['error_code']),('failed','invalid_structured_output'))
+    self.assertEqual(len(calls),1)
+    self.assertEqual(database.shots.find_one({'id':row['id']})['revision'],row['revision'])
+    self.assertEqual(self.http.post(f"/chat/{failed['id']}/plan",json={'variant':'with_paper'}).status_code,404)
+   result,calls=self._run_recipe_comparison(database,coffee['id'],'same-pair',same)
+   self.assertEqual(result['recipe_options'],same)
+   self.assertEqual(len(calls),1)
+   updated=self.http.put('/shots/'+row['id'],json={'coffee_id':coffee['id'],'revision':row['revision'],'grind':'9.5'})
+   self.assertEqual(updated.status_code,200)
+   self.assertEqual(self.http.post('/chat/same-pair/plan',json={'variant':'with_paper'}).status_code,409)
+   saved=database.shots.find_one({'id':row['id']})
+   self.assertEqual((saved['grind'],saved['paper'],saved['source']),('9.5','unknown','legacy'))
+
+ def test_concurrent_first_recipe_choices_share_one_plan(self):
+  import httpx
+  from pymongo import MongoClient
+  from unittest.mock import patch
+  from src.main import write_shot
+  self._use_recipe_test_owner('concurrent-recipe-owner')
+  coffee=self.http.post('/coffees',json={'name':'Concurrent selection fixture'}).json()
+  recipe={'dose':18,'grind':'5','temp':'','target_yield_g':36,'target_yield_max_g':None,
+          'water_temp_c':None,'water_g':None,'ice_g':None,'bloom_seconds':None,
+          'pressure':'','basket':'','puck_screen':'unknown','reason':'Keep the established settings.'}
+  pair={'with_paper':recipe,'without_paper':recipe}
+  with MongoClient(os.environ['MONGO_URL']) as mongo:
+   database=mongo[os.environ['MONGO_DB']]
+   jobs=[self._run_recipe_comparison(database,coffee['id'],f'concurrent-{index}',pair)[0] for index in range(2)]
+   self.assertEqual([job['status'] for job in jobs],['complete','complete'])
+   self.assertEqual(jobs[0]['plan_create_id'],jobs[1]['plan_create_id'])
+
+   async def choose_together():
+    ready=asyncio.Event()
+    waiting=0
+    async def write_together(*args):
+     nonlocal waiting
+     waiting+=1
+     if waiting==2: ready.set()
+     await asyncio.wait_for(ready.wait(),timeout=5)
+     return await write_shot(*args)
+    with patch('src.main.write_shot',new=write_together):
+     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test',
+                                 headers={'Authorization':'Bearer test'}) as api:
+      return await asyncio.gather(*(
+       api.post(f"/chat/{job['id']}/plan",json={'variant':variant})
+       for job,variant in zip(jobs,pair)
+      ))
+
+   responses=self.http.portal.call(choose_together)
+   self.assertEqual(sorted(result.status_code for result in responses),[200,409])
+   saved=next(result.json() for result in responses if result.status_code==200)
+   self.assertEqual(database.shots.count_documents({'coffee_id':coffee['id'],'status':'planned'}),1)
+   self.assertEqual(self.http.put('/shots/'+saved['id'],json={
+    'coffee_id':coffee['id'],'revision':saved['revision'],'status':'logged',
+   }).status_code,200)
+   # An old choice still targets the occupied id after the plan is logged.
+   self.assertEqual(self.http.post('/chat/concurrent-0/plan',json={'variant':'with_paper'}).status_code,409)
+   next_job,_=self._run_recipe_comparison(database,coffee['id'],'concurrent-next',pair)
+   self.assertNotEqual(next_job['plan_create_id'],saved['id'])
+   next_choice=self.http.post('/chat/concurrent-next/plan',json={'variant':'with_paper'})
+   self.assertEqual(next_choice.status_code,200,next_choice.text)
+
+ def _use_recipe_test_owner(self,owner):
+  from types import SimpleNamespace
+  from unittest.mock import AsyncMock,patch
+  self.enterContext(patch('src.main.OWNER_SUB',owner))
+  self.enterContext(patch('src.main.verify_privy_access_token',AsyncMock(return_value=SimpleNamespace(user_id=owner))))
+
+ def _run_recipe_comparison(self,database,coffee_id,job_id,body):
+  import json, httpx
+  from unittest.mock import AsyncMock, patch
+  from src.main import run_chat
+  calls=[]
+  def respond(request):
+   calls.append(json.loads(request.content))
+   return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(body)}}]})
+  with patch('src.main.run_chat',new=AsyncMock()) as worker:
+   request={'id':job_id,'message':'Regenerate','coffee_id':coffee_id,'intent':'plan_variants'}
+   response=self.http.post('/chat',json=request)
+   self.assertEqual(response.status_code,200,response.text)
+   self.assertEqual(response.json()['intent'],'plan_variants')
+   self.assertEqual(self.http.post('/chat',json=request).json(),response.json())
+   self.assertEqual(worker.call_count,1)
+  original_client=httpx.AsyncClient
+  with patch('src.services.bridge.httpx.AsyncClient',side_effect=lambda **kwargs:original_client(transport=httpx.MockTransport(respond),**kwargs)):
+   self.http.portal.call(run_chat,database.jobs.find_one({'id':job_id}))
+  return self.http.get('/chat/'+job_id).json(),calls
 
 if __name__=='__main__':unittest.main()
